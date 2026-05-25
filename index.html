@@ -51,6 +51,50 @@
     #splash .loader::after { content:''; display:block; height:100%; width:40%; background:var(--gold); border-radius:2px; animation: load 1.2s ease-in-out forwards; }
     @keyframes load { from { width:0; } to { width:100%; } }
 
+    /* ── LOGIN ── */
+    #login-screen {
+      position: fixed; inset: 0;
+      background: linear-gradient(160deg, #FDE8F0 0%, #F9C0D4 100%);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      z-index: 2000; padding: 32px; transition: opacity 0.4s;
+    }
+    #login-screen .login-logo {
+      width: 80px; height: 80px; border-radius: 20px;
+      background: linear-gradient(135deg, #F9C0D4, #FFEFF5);
+      border: 2px solid var(--gold); display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 0 40px rgba(201,100,120,0.3); margin-bottom: 14px;
+    }
+    #login-screen h2 { font-size: 22px; font-weight: 700; color: var(--gold); letter-spacing: 2px; }
+    #login-screen .login-sub { font-size: 11px; color: var(--text2); margin-top: 4px; margin-bottom: 28px; letter-spacing: 1px; }
+    #login-screen .login-card {
+      background: white; border-radius: 20px; padding: 28px 24px;
+      width: 100%; max-width: 340px;
+      box-shadow: 0 8px 32px rgba(201,100,120,0.15);
+    }
+    #login-screen label { font-size: 11px; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: 0.8px; display: block; margin-bottom: 6px; }
+    #login-screen input {
+      width: 100%; padding: 12px 14px; border-radius: 10px;
+      border: 1.5px solid var(--border); background: var(--bg);
+      font-size: 15px; color: var(--text); outline: none; margin-bottom: 16px;
+      -webkit-appearance: none;
+    }
+    #login-screen input:focus { border-color: var(--gold); }
+    #login-btn {
+      width: 100%; padding: 14px; border-radius: 12px;
+      background: linear-gradient(135deg, var(--gold), var(--gold-dark));
+      color: white; font-size: 15px; font-weight: 700; border: none;
+      letter-spacing: 1px; cursor: pointer; margin-top: 4px;
+      box-shadow: 0 4px 16px rgba(201,100,120,0.4);
+      transition: opacity 0.2s;
+    }
+    #login-btn:disabled { opacity: 0.6; }
+    #login-error { font-size: 12px; color: var(--red); text-align: center; margin-top: 10px; min-height: 18px; }
+    .logout-chip {
+      display: flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 20px;
+      background: var(--card2); border: 1px solid var(--border); cursor: pointer;
+      font-size: 11px; color: var(--text2); font-weight: 600; white-space: nowrap;
+    }
+
     /* ── LAYOUT ── */
     #app { display: flex; flex-direction: column; height: 100vh; height: -webkit-fill-available; }
     #screens { flex: 1; overflow: hidden; position: relative; }
@@ -306,6 +350,26 @@
 </head>
 <body>
 
+<!-- LOGIN -->
+<div id="login-screen">
+  <div class="login-logo">
+    <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M24 8C16 8 10 14 10 20C10 26 14 29 18 31L24 40L30 31C34 29 38 26 38 20C38 14 32 8 24 8Z" stroke="#C9637A" stroke-width="2.5" fill="none"/>
+      <circle cx="24" cy="20" r="4" fill="#C9637A"/>
+    </svg>
+  </div>
+  <h2>CACUSA POS</h2>
+  <p class="login-sub">BY TAITUS LLC</p>
+  <div class="login-card">
+    <label for="login-user">Usuario</label>
+    <input id="login-user" type="text" placeholder="usuario" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false">
+    <label for="login-pass">Contraseña</label>
+    <input id="login-pass" type="password" placeholder="••••••••" autocomplete="current-password">
+    <button id="login-btn" onclick="intentarLogin()">INGRESAR</button>
+    <div id="login-error"></div>
+  </div>
+</div>
+
 <!-- SPLASH -->
 <div id="splash">
   <div class="logo-ring">
@@ -334,8 +398,14 @@
             <div class="brand">CACUSA POS</div>
             <div style="font-size:11px; color:var(--text3); margin-top:1px;" id="pos-date"></div>
           </div>
-          <div class="btn-icon" onclick="openModal('modal-help')">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <div class="logout-chip" onclick="cerrarSesion()" title="Cerrar sesión">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+              <span id="session-user">—</span>
+            </div>
+            <div class="btn-icon" onclick="openModal('modal-help')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            </div>
           </div>
         </div>
         <div class="pos-info">
@@ -1389,7 +1459,83 @@ function exportarVentas() {
 // ════════════════════════════════════════════════════════
 //  INIT
 // ════════════════════════════════════════════════════════
+// ════════════════════════════════════════
+//  SISTEMA DE LOGIN
+// ════════════════════════════════════════
+const USUARIOS = {
+  'robin.gonzalez': '60fa773a2834d6a14bf770b729b2415c3f55819cee0712bf304558a3bb711cf4',
+  'tita.jaramillo': '60fa773a2834d6a14bf770b729b2415c3f55819cee0712bf304558a3bb711cf4',
+};
+
+async function _hashPass(txt) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(txt));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+async function intentarLogin() {
+  const userEl = document.getElementById('login-user');
+  const passEl = document.getElementById('login-pass');
+  const errEl  = document.getElementById('login-error');
+  const btn    = document.getElementById('login-btn');
+  const user   = (userEl.value || '').trim().toLowerCase();
+  const pass   = passEl.value || '';
+  errEl.textContent = '';
+  if (!user || !pass) { errEl.textContent = 'Ingresa usuario y contraseña'; return; }
+  btn.disabled = true; btn.textContent = 'VERIFICANDO…';
+  const hash = await _hashPass(pass);
+  if (USUARIOS[user] && USUARIOS[user] === hash) {
+    localStorage.setItem('cacusa_session', JSON.stringify({user, ts: Date.now()}));
+    const ls = document.getElementById('login-screen');
+    ls.style.opacity = '0';
+    setTimeout(() => { ls.style.display = 'none'; }, 400);
+    _mostrarUsuario(user);
+  } else {
+    errEl.textContent = '❌ Usuario o contraseña incorrectos';
+    passEl.value = '';
+    passEl.focus();
+    btn.disabled = false; btn.textContent = 'INGRESAR';
+  }
+}
+
+function cerrarSesion() {
+  if (confirm('¿Cerrar sesión?')) {
+    localStorage.removeItem('cacusa_session');
+    location.reload();
+  }
+}
+
+function _mostrarUsuario(user) {
+  const el = document.getElementById('session-user');
+  if (el) el.textContent = user.split('.')[0].charAt(0).toUpperCase() + user.split('.')[0].slice(1);
+}
+
+function _checkLogin() {
+  const raw = localStorage.getItem('cacusa_session');
+  if (!raw) return null;
+  try {
+    const sess = JSON.parse(raw);
+    if (Date.now() - sess.ts < 12 * 3600 * 1000) return sess.user;
+  } catch {}
+  localStorage.removeItem('cacusa_session');
+  return null;
+}
+
 window.addEventListener('DOMContentLoaded', async ()=>{
+  // ── Verificar sesión ──
+  const usuarioActivo = _checkLogin();
+  const loginEl = document.getElementById('login-screen');
+  if (usuarioActivo) {
+    loginEl.style.display = 'none';
+    _mostrarUsuario(usuarioActivo);
+  }
+  // Teclas Enter en formulario login
+  document.getElementById('login-user')?.addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('login-pass')?.focus();
+  });
+  document.getElementById('login-pass')?.addEventListener('keydown', e => {
+    if (e.key === 'Enter') intentarLogin();
+  });
+
   setTimeout(()=>{
     document.getElementById('splash').style.opacity='0';
     setTimeout(()=>document.getElementById('splash').style.display='none',500);
