@@ -233,6 +233,8 @@
     .cart-actions { padding: 0 14px 14px; display: flex; gap: 8px; }
     .dije-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-top: 1px solid var(--border); }
     .dije-row label { font-size: 13px; color: var(--text2); }
+    .dije-qty-ctrl { display: flex; align-items: center; gap: 10px; }
+    .dije-qty-ctrl span { font-size: 16px; font-weight: 700; min-width: 20px; text-align: center; color: var(--gold); }
     .toggle { position: relative; width: 44px; height: 26px; }
     .toggle input { opacity: 0; width: 0; height: 0; }
     .toggle-slider { position: absolute; inset: 0; background: var(--border); border-radius: 13px; cursor: pointer; transition: 0.2s; }
@@ -453,12 +455,16 @@
         </div>
         <div id="cart-items"></div>
         <div class="dije-row" id="dije-row" style="display:none;">
-          <label>+ Dije extra (+$5.00)</label>
-          <label class="toggle"><input type="checkbox" id="dije-toggle" onchange="recalcCart()"><div class="toggle-slider"></div></label>
+          <label>+ Dijes extra (+$5.00 c/u)</label>
+          <div class="dije-qty-ctrl">
+            <button class="qty-btn" onclick="changeDijeQty(-1)">−</button>
+            <span id="dije-qty-display">0</span>
+            <button class="qty-btn" onclick="changeDijeQty(1)">+</button>
+          </div>
         </div>
         <div class="cart-totals" id="cart-totals" style="display:none;">
           <div class="total-row"><span>Subtotal</span><span id="t-sub">$0.00</span></div>
-          <div class="total-row" id="t-dije-row" style="display:none;"><span>Dije extra</span><span>+$5.00</span></div>
+          <div class="total-row" id="t-dije-row" style="display:none;"><span>Dijes extra</span><span id="t-dije-amt">+$5.00</span></div>
           <div class="total-row"><span id="t-tax-label">Impuesto</span><span id="t-tax">$0.00</span></div>
           <div class="total-row grand"><span>TOTAL</span><span id="t-total">$0.00</span></div>
         </div>
@@ -683,9 +689,10 @@
       </div>
       <div class="card gold-border" style="margin:8px 0 16px;">
         <div class="total-row"><span>Subtotal</span><span id="co-sub">$0.00</span></div>
-        <div class="total-row" id="co-dije-row2" style="display:none;"><span>Dije extra</span><span>+$5.00</span></div>
+        <div class="total-row" id="co-dije-row2" style="display:none;"><span>Dijes extra</span><span id="co-dije-amt">+$5.00</span></div>
         <div class="total-row" id="co-ship-row" style="display:none;"><span>Envío cliente</span><span id="co-ship">$0.00</span></div>
         <div class="total-row"><span id="co-tax-label">Impuesto</span><span id="co-tax">$0.00</span></div>
+        <div class="total-row" id="co-cc-row" style="display:none;"><span style="color:var(--gold);font-weight:600;">Recargo Tarjeta 4%</span><span id="co-cc-fee" style="color:var(--gold);">$0.00</span></div>
         <div class="divider"></div>
         <div class="total-row grand"><span>TOTAL</span><span id="co-total">$0.00</span></div>
       </div>
@@ -773,6 +780,9 @@
 // ════════════════════════════════════════════════════════
 //  DATA
 // ════════════════════════════════════════════════════════
+// Ventas compartidas exportadas desde Excel por el Watcher (NO editar manualmente)
+const SHARED_SALES = [];
+
 const PRODUCTS_VER = '2026-05-25T09:04';
 const DEFAULT_PRODUCTS = [
   { id:'P001', name:'Cadena Fina Dorada con letra', cat:'Cadenas', price:23.36, active:true },
@@ -806,7 +816,18 @@ let products = load('cacusa_products', DEFAULT_PRODUCTS);
 let sales    = load('cacusa_sales', []);
 let costs    = load('cacusa_costs', []);
 
+// Sincronizar ventas compartidas (exportadas por el Watcher desde Excel)
+if (SHARED_SALES.length > 0) {
+  const localIds = new Set(sales.map(s => s.id));
+  const toAdd = SHARED_SALES.filter(s => !localIds.has(s.id));
+  if (toAdd.length > 0) {
+    sales = [...sales, ...toAdd].sort((a,b) => (b.created||0) - (a.created||0));
+    save('cacusa_sales', sales);
+  }
+}
+
 let cart = [];
+let dijeQty = 0;
 let currentDocType = 'FAC';
 let activeCat = 'Todos';
 let histFilter = 'Todos';
@@ -990,7 +1011,7 @@ function addToCart(pid) {
 }
 
 function changeQty(idx,delta) { cart[idx].qty+=delta; if(cart[idx].qty<=0) cart.splice(idx,1); renderCart(); }
-function clearCart() { if(!confirm('¿Limpiar el carrito?')) return; cart=[]; document.getElementById('dije-toggle').checked=false; renderCart(); }
+function clearCart() { if(!confirm('¿Limpiar el carrito?')) return; cart=[]; dijeQty=0; document.getElementById('dije-qty-display').textContent='0'; renderCart(); }
 
 function renderCart() {
   const empty=document.getElementById('cart-empty');
@@ -1026,11 +1047,12 @@ function renderCart() {
 function recalcCart() {
   if(!cart.length) return;
   const sub=cart.reduce((s,i)=>s+i.price*i.qty,0);
-  const dije=document.getElementById('dije-toggle').checked?5:0;
+  const dije=dijeQty*5;
   const {state,rate}=getTaxInfo();
   const tax=(sub+dije)*(rate/100);
   document.getElementById('t-sub').textContent=fmt(sub);
-  document.getElementById('t-dije-row').style.display=dije?'flex':'none';
+  document.getElementById('t-dije-row').style.display=dije>0?'flex':'none';
+  if(dije>0) document.getElementById('t-dije-amt').textContent=`+${fmt(dije)}`;
   document.getElementById('t-tax').textContent=fmt(tax);
   document.getElementById('t-tax-label').textContent=state?`Impuesto ${state} ${rate}%`:'Impuesto';
   document.getElementById('t-total').textContent=fmt(sub+dije+tax);
@@ -1054,22 +1076,34 @@ function openCheckout(type) {
   recalcCheckout(); openModal('modal-checkout');
 }
 
-function selectPay(el){document.querySelectorAll('.pay-btn').forEach(b=>b.classList.remove('selected'));el.classList.add('selected');}
+function selectPay(el){document.querySelectorAll('.pay-btn').forEach(b=>b.classList.remove('selected'));el.classList.add('selected');recalcCheckout();}
+
+function changeDijeQty(delta) {
+  dijeQty = Math.max(0, dijeQty + delta);
+  document.getElementById('dije-qty-display').textContent = dijeQty;
+  recalcCart();
+}
 
 function recalcCheckout() {
   const sub=cart.reduce((s,i)=>s+i.price*i.qty,0);
-  const dije=document.getElementById('dije-toggle').checked?5:0;
+  const dije=dijeQty*5;
   const ship=parseFloat(document.getElementById('checkout-shipping').value)||0;
   const reseller=document.getElementById('checkout-reseller').checked;
   const {state,rate}=getTaxInfo();
   const tax=reseller?0:(sub+dije)*(rate/100);
+  const payEl=document.querySelector('.pay-btn.selected');
+  const pay=payEl?payEl.dataset.pay:'Efectivo';
+  const ccFee=pay==='Tarjeta'?Math.round((sub+dije+tax)*0.04*100)/100:0;
   document.getElementById('co-sub').textContent=fmt(sub);
-  document.getElementById('co-dije-row2').style.display=dije?'flex':'none';
+  document.getElementById('co-dije-row2').style.display=dije>0?'flex':'none';
+  if(dije>0) document.getElementById('co-dije-amt').textContent=`+${fmt(dije)}`;
   document.getElementById('co-ship-row').style.display=ship?'flex':'none';
   document.getElementById('co-ship').textContent=fmt(ship);
   document.getElementById('co-tax').textContent=fmt(tax);
   document.getElementById('co-tax-label').textContent=reseller?'Impuesto (Reseller)':(state?`Impuesto ${state} ${rate}%`:'Impuesto');
-  document.getElementById('co-total').textContent=fmt(sub+dije+tax+ship);
+  document.getElementById('co-cc-row').style.display=ccFee?'flex':'none';
+  document.getElementById('co-cc-fee').textContent=fmt(ccFee);
+  document.getElementById('co-total').textContent=fmt(sub+dije+tax+ship+ccFee);
 }
 
 async function confirmSale() {
@@ -1079,21 +1113,23 @@ async function confirmSale() {
   const reseller=document.getElementById('checkout-reseller').checked;
   const shipping=parseFloat(document.getElementById('checkout-shipping').value)||0;
   const usps=parseFloat(document.getElementById('checkout-usps').value)||0;
-  const dije=document.getElementById('dije-toggle').checked?5:0;
+  const dije=dijeQty*5;
   const {state,rate}=getTaxInfo();
   const sub=cart.reduce((s,i)=>s+i.price*i.qty,0);
   const tax=reseller?0:(sub+dije)*(rate/100);
-  const total=sub+dije+tax+shipping;
+  const ccFee=pay==='Tarjeta'?Math.round((sub+dije+tax)*0.04*100)/100:0;
+  const total=sub+dije+tax+shipping+ccFee;
 
   const sale={
     id:nextId(currentDocType), type:currentDocType, client, date:today(),
-    items:JSON.parse(JSON.stringify(cart)), dije, subtotal:sub, tax, taxRate:rate,
-    taxState:state, shipping, usps, total, payMethod:pay,
+    items:JSON.parse(JSON.stringify(cart)), dije, dijeQty, subtotal:sub, tax, taxRate:rate,
+    taxState:state, shipping, usps, ccFee, total, payMethod:pay,
     reseller:reseller?'SÍ':'NO', status:'Pendiente', created:Date.now()
   };
 
   sales.unshift(sale); save('cacusa_sales', sales);
-  cart=[]; document.getElementById('dije-toggle').checked=false;
+  cart=[]; dijeQty=0;
+  document.getElementById('dije-qty-display').textContent='0';
   document.getElementById('pos-client').value='';
   renderCart(); closeModal('modal-checkout');
   showToast(`${sale.id} registrado ✓`,'success');
@@ -1129,7 +1165,7 @@ function renderHist() {
       <div class="sale-meta">
         <span class="badge ${tc}">${s.type==='FAC'?'Factura':'Orden'}</span>
         <span class="badge ${sc}" onclick="cycleStatus(event,'${s.id}')">${s.status}</span>
-        <span class="badge badge-gray">${s.payMethod}</span>
+        <span class="badge badge-gray">${s.payMethod||'—'}</span>
         ${s.reseller==='SÍ'?'<span class="badge badge-blue">Reseller</span>':''}
       </div>
       <div class="sale-foot"><div class="sale-items-preview">${preview}</div><div class="sale-total">${fmt(s.total)}</div></div>
@@ -1167,14 +1203,15 @@ function openSaleDetail(id) {
         <div><div style="font-size:13px;font-weight:500;">${i.name}</div><div style="font-size:11px;color:var(--text2);">${i.qty} × ${fmt(i.price)}</div></div>
         <div style="font-size:14px;font-weight:700;color:var(--gold);">${fmt(i.price*i.qty)}</div>
       </div>`).join('')}
-      ${s.dije?`<div style="display:flex;justify-content:space-between;padding:10px 14px;"><span style="font-size:13px;">Dije extra</span><span style="font-size:14px;font-weight:700;color:var(--gold);">+$5.00</span></div>`:''}
+      ${s.dije?`<div style="display:flex;justify-content:space-between;padding:10px 14px;"><span style="font-size:13px;">Dijes extra (${s.dijeQty||1} × $5.00)</span><span style="font-size:14px;font-weight:700;color:var(--gold);">+${fmt(s.dije)}</span></div>`:''}
     </div>
     <div class="card">
       <div class="total-row"><span>Subtotal</span><span>${fmt(s.subtotal)}</span></div>
-      ${s.dije?`<div class="total-row"><span>Dije</span><span>+${fmt(s.dije)}</span></div>`:''}
+      ${s.dije?`<div class="total-row"><span>Dijes extra (${s.dijeQty||1}×$5)</span><span>+${fmt(s.dije)}</span></div>`:''}
       ${s.shipping?`<div class="total-row"><span>Envío cliente</span><span>${fmt(s.shipping)}</span></div>`:''}
       ${s.usps?`<div class="total-row"><span>Costo USPS</span><span>${fmt(s.usps)}</span></div>`:''}
       <div class="total-row"><span>Impuesto</span><span>${fmt(s.tax)}</span></div>
+      ${s.ccFee?`<div class="total-row"><span style="color:var(--gold);">Recargo Tarjeta 4%</span><span style="color:var(--gold);">+${fmt(s.ccFee)}</span></div>`:''}
       <div class="divider"></div>
       <div class="total-row grand"><span>TOTAL</span><span>${fmt(s.total)}</span></div>
     </div>
@@ -1233,8 +1270,15 @@ function generarPDF(id) {
   // ── Datos ──
   let y = 98;
   const meses = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
-  const fd    = new Date(s.date + 'T12:00:00');
-  const fStr  = `${fd.getDate()} de ${meses[fd.getMonth()]} de ${fd.getFullYear()}`;
+  // Parsear fecha en formato DD/MM/YYYY o YYYY-MM-DD
+  let fd;
+  if (s.date && s.date.includes('/')) {
+    const [dd, mm, yyyy] = s.date.split('/');
+    fd = new Date(parseInt(yyyy), parseInt(mm) - 1, parseInt(dd));
+  } else {
+    fd = new Date((s.date || '') + 'T12:00:00');
+  }
+  const fStr  = `${fd.getDate()} de ${meses[fd.getMonth()] || ''} de ${fd.getFullYear()}`;
 
   doc.setTextColor(...DARK);
   doc.setFontSize(10);
@@ -1242,10 +1286,10 @@ function generarPDF(id) {
     doc.setFont('helvetica', 'bold');  doc.text(lbl, L, yy);
     doc.setFont('helvetica', 'normal'); doc.text(val, L + 62, yy);
   };
-  campo('Folio:', `${s.id}    ${fStr}`, y);            y += 20;
-  campo('Cliente:', s.client, y);                       y += 20;
+  campo('N° Documento:', `${s.id}    ${fStr}`, y); y += 20;
+  campo('Cliente:', s.client || '—', y);                y += 20;
   if (s.taxState) { campo('Estado:', `${s.taxState} — Tax ${s.taxRate}%`, y); y += 20; }
-  campo('Metodo:', s.payMethod || '—', y);              y += 20;
+  campo('Método:', s.payMethod || '—', y);         y += 20;
 
   // ── Tabla header ──
   y += 10;
@@ -1290,7 +1334,9 @@ function generarPDF(id) {
     y += 18;
   };
   totalRow('Subtotal', fmt(s.subtotal));
+  if (s.dije) totalRow(`Dijes extra (${s.dijeQty||1}×$5.00)`, fmt(s.dije));
   if (s.tax) totalRow(`Tax (${s.taxRate || ''}%)`, fmt(s.tax));
+  if (s.ccFee) totalRow('Recargo Tarjeta 4%', fmt(s.ccFee));
 
   // fila TOTAL con fondo rosa
   doc.setFillColor(...PINK);
