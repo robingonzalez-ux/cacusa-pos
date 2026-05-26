@@ -871,11 +871,16 @@ let histFilter = 'Todos';
 // ════════════════════════════════════════════════════════
 //  WIFI SYNC — Servidor local en la PC
 // ════════════════════════════════════════════════════════
+const NGROK_SERVER = 'https://upfront-yearbook-fascism.ngrok-free.dev';
+
 function getPCUrl() {
   const stored = load('cacusa_pc_url','').replace(/\/+$/,'');
   if (stored) return stored;
-  // Auto-detect: si la app corre via HTTP desde una IP local (servidor WiFi abierto),
-  // usar el mismo origen como URL del servidor — resuelve el bloqueo HTTPS/HTTP
+  // Auto-detect ngrok: si la app corre desde el dominio ngrok, usar ese mismo origen
+  if (location.hostname === 'upfront-yearbook-fascism.ngrok-free.dev') {
+    return NGROK_SERVER;
+  }
+  // Auto-detect local: si la app corre via HTTP desde una IP local
   if (location.protocol === 'http:' &&
       location.hostname !== 'localhost' &&
       location.hostname !== '127.0.0.1') {
