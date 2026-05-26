@@ -631,11 +631,11 @@
         <div class="settings-card">
           <div style="padding:4px 2px;">
             <div style="font-size:13px; font-weight:700; color:var(--text); margin-bottom:12px;">📋 Cómo configurarlo (solo una vez)</div>
-            <div class="step-row"><div class="step-num">1</div><div class="step-text">En tu <strong>PC</strong>, abre la carpeta <strong>CACUSA VENTAS</strong> en OneDrive</div></div>
-            <div class="step-row"><div class="step-num">2</div><div class="step-text">Haz doble clic en <strong>"ABRIR Servidor WiFi.bat"</strong> — se abre una ventana rosada</div></div>
-            <div class="step-row"><div class="step-num">3</div><div class="step-text">La ventana muestra una dirección como <code>192.168.1.5:5678</code> — <strong>cópiala</strong></div></div>
-            <div class="step-row"><div class="step-num">4</div><div class="step-text">Pégala aquí arriba en <strong>"Dirección del PC"</strong> y toca <strong>Probar</strong></div></div>
-            <div class="step-row"><div class="step-num">5</div><div class="step-text">¡Listo! Desde ahora cada venta se guarda <strong>automáticamente en tu Excel</strong> al confirmarla</div></div>
+            <div class="step-row"><div class="step-num">1</div><div class="step-text">En tu <strong>PC</strong>, abre <strong>"ABRIR Servidor WiFi.bat"</strong> — se abre una ventana rosada</div></div>
+            <div class="step-row"><div class="step-num">2</div><div class="step-text">La ventana muestra una dirección como <code>http://192.168.1.5:5678</code> — <strong>cópiala</strong></div></div>
+            <div class="step-row"><div class="step-num">3</div><div class="step-text">Abre esa dirección en <strong>Safari del iPhone</strong> — la app se abrirá directamente y se configurará sola ✅</div></div>
+            <div class="step-row"><div class="step-num">4</div><div class="step-text">En Safari, toca <strong>Compartir → Agregar a pantalla de inicio</strong> para guardarla como app</div></div>
+            <div class="step-row"><div class="step-num">5</div><div class="step-text">¡Listo! Cada venta se guarda <strong>automáticamente en tu Excel</strong> al confirmarla</div></div>
           </div>
         </div>
 
@@ -870,7 +870,18 @@ let histFilter = 'Todos';
 // ════════════════════════════════════════════════════════
 //  WIFI SYNC — Servidor local en la PC
 // ════════════════════════════════════════════════════════
-function getPCUrl() { return load('cacusa_pc_url','').replace(/\/+$/,''); }
+function getPCUrl() {
+  const stored = load('cacusa_pc_url','').replace(/\/+$/,'');
+  if (stored) return stored;
+  // Auto-detect: si la app corre via HTTP desde una IP local (servidor WiFi abierto),
+  // usar el mismo origen como URL del servidor — resuelve el bloqueo HTTPS/HTTP
+  if (location.protocol === 'http:' &&
+      location.hostname !== 'localhost' &&
+      location.hostname !== '127.0.0.1') {
+    return location.origin;
+  }
+  return '';
+}
 
 function guardarIP() {
   const v = document.getElementById('pc-ip-input').value.trim();
