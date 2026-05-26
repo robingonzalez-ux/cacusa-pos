@@ -818,21 +818,22 @@
 // Ventas compartidas exportadas desde Excel por el Watcher (NO editar manualmente)
 const SHARED_SALES = [];
 
-const PRODUCTS_VER = '2026-05-25T09:04';
+const PRODUCTS_VER = '2026-05-26T18:04';
 const DEFAULT_PRODUCTS = [
-  { id:'P001', name:'Cadena Fina Dorada con letra', cat:'Cadenas', price:23.36, active:true },
-  { id:'P002', name:'Cadena de Acero Dorado con nombre', cat:'Cadenas', price:60.75, active:true },
-  { id:'P003', name:'Cadena dorada con 3 dijes', cat:'Cadenas', price:35.51, active:true },
+  { id:'P001', name:'Cadena dorada con OJO TURCO', cat:'Cadenas', price:35.00, active:true },
+  { id:'P002', name:'Cadena de Acero con GRABADO', cat:'Cadenas', price:55.00, active:true },
+  { id:'P003', name:'Cadena dorada con PERLAS', cat:'Cadenas', price:28.00, active:true },
   { id:'P004', name:'Pulsera Dorada Lisa', cat:'Pulseras', price:20.00, active:true },
   { id:'P005', name:'Pulsera con Dije Incluido', cat:'Pulseras', price:20.00, active:true },
-  { id:'P006', name:'Pulsera de Plata', cat:'Pulseras', price:20.00, active:true },
-  { id:'P007', name:'Trio de anillos en promo', cat:'Anillos', price:55.00, active:true },
+  { id:'P006', name:'Esclava con grabado a laser', cat:'Pulseras', price:45.00, active:true },
+  { id:'P007', name:'Trio MIX en promo', cat:'Anillos', price:55.00, active:true },
   { id:'P008', name:'Anillo con Piedra', cat:'Anillos', price:20.00, active:true },
   { id:'P009', name:'Anillo Minimalista', cat:'Anillos', price:20.00, active:true },
   { id:'P010', name:'Aretes Argolla Dorada', cat:'Aretes', price:20.00, active:true },
-  { id:'P011', name:'Aretes de Perla', cat:'Aretes', price:20.00, active:true },
+  { id:'P011', name:'Aretes de Plata italiana LETRA E', cat:'Aretes', price:45.00, active:true },
   { id:'P012', name:'Aretes Minimalistas', cat:'Aretes', price:20.00, active:true },
   { id:'P013', name:'ENVIO USPS', cat:'ENVIO', price:10.00, active:true },
+  { id:'P014', name:'Tarjeta 8*8 impresa personalizada', cat:'tarjeta', price:5.50, active:true },
 ];
 
 function load(key, def) { try { const v=localStorage.getItem(key); return v?JSON.parse(v):def; } catch{return def;} }
