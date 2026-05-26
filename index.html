@@ -89,6 +89,20 @@
     }
     #login-btn:disabled { opacity: 0.6; }
     #login-error { font-size: 12px; color: var(--red); text-align: center; margin-top: 10px; min-height: 18px; }
+    /* ── SQUARE ── */
+    .square-banner { background:#006AFF; color:white; border-radius:14px; padding:14px 16px; margin:8px 0 12px; display:none; }
+    .square-banner.show { display:block; }
+    .square-banner .sq-title { font-size:13px; font-weight:700; margin-bottom:6px; }
+    .square-banner .sq-body  { font-size:12px; opacity:0.9; margin-bottom:10px; }
+    .btn-square { width:100%; padding:14px; border-radius:12px; background:#006AFF; color:white;
+      font-size:15px; font-weight:700; border:none; cursor:pointer; display:none;
+      box-shadow:0 4px 16px rgba(0,106,255,0.35); letter-spacing:0.5px; margin-top:8px; }
+    .btn-square.show { display:block; }
+    .btn-square:active { opacity:0.85; }
+    .sq-pending-bar { background:#006AFF; color:white; padding:12px 14px; border-radius:12px;
+      display:none; margin:8px 14px; text-align:center; font-size:13px; font-weight:600; cursor:pointer; }
+    .sq-pending-bar.show { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+
     .logout-chip {
       display: flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 20px;
       background: var(--card2); border: 1px solid var(--border); cursor: pointer;
@@ -453,6 +467,11 @@
             <div class="btn btn-sm btn-danger" onclick="clearCart()" style="display:none;" id="clear-btn">Limpiar</div>
           </div>
         </div>
+        <!-- Banner Square pago pendiente -->
+        <div class="sq-pending-bar" id="sq-pending-bar" onclick="confirmarPagoSquare()">
+          <span>💳 Pago en Square pendiente — ¿Completado?</span>
+          <span style="background:white;color:#006AFF;border-radius:8px;padding:4px 10px;font-size:12px;font-weight:700;white-space:nowrap;">✓ Confirmar</span>
+        </div>
         <div id="cart-items"></div>
         <div class="dije-row" id="dije-row" style="display:none;">
           <label>+ Dijes extra (+$5.00 c/u)</label>
@@ -571,6 +590,21 @@
           <div class="settings-row">
             <div><div class="settings-row-label">Última sincronización</div></div>
             <div class="settings-row-right" id="last-sync-text">—</div>
+          </div>
+        </div>
+
+        <!-- Square -->
+        <div class="settings-card">
+          <div class="settings-row" style="flex-direction:column; align-items:flex-start; gap:10px; padding-bottom:14px;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <div style="width:28px;height:28px;background:#006AFF;border-radius:7px;display:flex;align-items:center;justify-content:center;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="white"><rect x="3" y="3" width="18" height="18" rx="3"/></svg>
+              </div>
+              <div class="settings-row-label" style="margin:0;">Square — Cobro con tarjeta</div>
+            </div>
+            <div class="settings-row-sub" style="margin-top:-4px;">Ingresa tu Application ID de Square para cobrar directamente desde la app. Obtenlo gratis en <strong>developer.squareup.com</strong></div>
+            <input class="input-field" id="square-app-id" type="text" placeholder="sq0idp-XXXXXXXXXXXXXXXX" oninput="save('cacusa_square_id',this.value.trim())" style="width:100%;margin:0;" autocapitalize="none" autocorrect="off" spellcheck="false">
+            <div id="square-status" style="font-size:12px;margin-top:-4px;"></div>
           </div>
         </div>
 
@@ -696,6 +730,7 @@
         <div class="divider"></div>
         <div class="total-row grand"><span>TOTAL</span><span id="co-total">$0.00</span></div>
       </div>
+      <button class="btn-square" id="btn-square" onclick="cobrarConSquare()">💳 Cobrar con Square →</button>
       <button class="btn btn-gold btn-full" onclick="confirmSale()" id="confirm-btn">✓ Confirmar y Registrar</button>
     </div>
   </div>
@@ -1073,10 +1108,10 @@ function openCheckout(type) {
   document.getElementById('checkout-reseller').checked=false;
   document.querySelectorAll('.pay-btn').forEach(b=>b.classList.remove('selected'));
   document.querySelector('[data-pay="Efectivo"]').classList.add('selected');
+  const sqBtn = document.getElementById('btn-square');
+  if (sqBtn) sqBtn.classList.remove('show'); // ocultar al abrir (Efectivo seleccionado)
   recalcCheckout(); openModal('modal-checkout');
 }
-
-function selectPay(el){document.querySelectorAll('.pay-btn').forEach(b=>b.classList.remove('selected'));el.classList.add('selected');recalcCheckout();}
 
 function changeDijeQty(delta) {
   dijeQty = Math.max(0, dijeQty + delta);
@@ -1506,6 +1541,141 @@ function exportarVentas() {
 //  INIT
 // ════════════════════════════════════════════════════════
 // ════════════════════════════════════════
+//  SQUARE POS INTEGRATION
+// ════════════════════════════════════════
+function getSquareId() { return load('cacusa_square_id','').trim(); }
+
+function selectPay(el) {
+  document.querySelectorAll('.pay-btn').forEach(b => b.classList.remove('selected'));
+  el.classList.add('selected');
+  // Mostrar/ocultar botón Square
+  const isTarjeta = el.dataset.pay === 'Tarjeta';
+  const sqBtn = document.getElementById('btn-square');
+  if (sqBtn) sqBtn.classList.toggle('show', isTarjeta && !!getSquareId());
+  recalcCheckout();
+}
+
+async function cobrarConSquare() {
+  const sqId = getSquareId();
+  if (!sqId) {
+    showToast('Configura tu Square App ID en Configuración','error');
+    return;
+  }
+  // Guardar venta como Pendiente primero
+  const client   = document.getElementById('pos-client').value.trim();
+  const reseller = document.getElementById('checkout-reseller').checked;
+  const shipping = parseFloat(document.getElementById('checkout-shipping').value) || 0;
+  const usps     = parseFloat(document.getElementById('checkout-usps').value) || 0;
+  const dije     = dijeQty * 5;
+  const { state, rate } = getTaxInfo();
+  const sub  = cart.reduce((s, i) => s + i.price * i.qty, 0);
+  const tax  = reseller ? 0 : (sub + dije) * (rate / 100);
+  const ccFee = Math.round((sub + dije + tax) * 0.04 * 100) / 100;
+  const total = sub + dije + tax + shipping + ccFee;
+  const saleId = nextId(currentDocType);
+
+  const sale = {
+    id: saleId, type: currentDocType, client, date: today(),
+    items: JSON.parse(JSON.stringify(cart)), dije, dijeQty,
+    subtotal: sub, tax, taxRate: rate, taxState: state,
+    shipping, usps, ccFee, total, payMethod: 'Tarjeta',
+    reseller: reseller ? 'SÍ' : 'NO', status: 'Pendiente',
+    squarePending: true, created: Date.now()
+  };
+  sales.unshift(sale);
+  save('cacusa_sales', sales);
+  save('cacusa_square_pending', saleId);
+
+  // Limpiar carrito
+  cart = []; dijeQty = 0;
+  document.getElementById('dije-qty-display').textContent = '0';
+  document.getElementById('pos-client').value = '';
+  renderCart();
+  closeModal('modal-checkout');
+  showToast(`${saleId} guardado — abriendo Square…`, 'success');
+
+  // Esperar 800ms para que se vea el toast, luego abrir Square
+  await new Promise(r => setTimeout(r, 800));
+
+  const amountCents = Math.round(total * 100);
+  const callbackUrl = `${location.origin}${location.pathname}?sq_ok=${encodeURIComponent(saleId)}`;
+  const payload = {
+    amount_money:         { amount: amountCents, currency_code: 'USD' },
+    callback_url:         callbackUrl,
+    client_id:            sqId,
+    version:              '1.3',
+    notes:                `CACUSA | ${saleId} | ${client}`,
+    options: {
+      supported_tender_types: ['CREDIT_CARD', 'DEBIT_CARD'],
+      skip_receipt_screen:    false
+    }
+  };
+  const encoded = btoa(JSON.stringify(payload));
+  const squareUrl = `square-commerce-v1://payment/create?data=${encoded}`;
+
+  // Mostrar banner por si el callback no llega
+  _mostrarPendingSquare(saleId);
+
+  window.location.href = squareUrl;
+}
+
+function _mostrarPendingSquare(saleId) {
+  const bar = document.getElementById('sq-pending-bar');
+  if (bar) {
+    bar.dataset.saleid = saleId;
+    bar.classList.add('show');
+  }
+}
+
+function confirmarPagoSquare(saleId) {
+  const bar = document.getElementById('sq-pending-bar');
+  const id = saleId || bar?.dataset.saleid || load('cacusa_square_pending','');
+  if (!id) return;
+  const sale = sales.find(s => s.id === id);
+  if (sale) {
+    sale.status = 'Pagado';
+    sale.squarePending = false;
+    save('cacusa_sales', sales);
+    showToast(`${id} marcado como Pagado ✓`, 'success');
+    syncVentaWifi(sale);
+  }
+  save('cacusa_square_pending', '');
+  if (bar) bar.classList.remove('show');
+  renderHist();
+}
+
+function _checkSquareCallback() {
+  // Revisar si Square redirigió aquí con ?sq_ok=ID o ?data=BASE64
+  const params = new URLSearchParams(location.search);
+  const sqOk   = params.get('sq_ok');
+  const sqData = params.get('data');
+
+  if (sqOk) {
+    // Callback directo con el ID que enviamos
+    setTimeout(() => confirmarPagoSquare(decodeURIComponent(sqOk)), 800);
+    history.replaceState({}, '', location.pathname);
+    return;
+  }
+  if (sqData) {
+    // Callback estándar de Square con base64
+    try {
+      const result = JSON.parse(atob(sqData));
+      if (result.status === 'ok' || result.status === 'OK') {
+        const pendingId = load('cacusa_square_pending','');
+        if (pendingId) setTimeout(() => confirmarPagoSquare(pendingId), 800);
+      }
+    } catch {}
+    history.replaceState({}, '', location.pathname);
+    return;
+  }
+  // Revisar si hay un pago pendiente de Square sin confirmar
+  const pendingId = load('cacusa_square_pending','');
+  if (pendingId && sales.find(s => s.id === pendingId && s.status === 'Pendiente')) {
+    _mostrarPendingSquare(pendingId);
+  }
+}
+
+// ════════════════════════════════════════
 //  SISTEMA DE LOGIN
 // ════════════════════════════════════════
 const USUARIOS = {
@@ -1581,6 +1751,21 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('login-pass')?.addEventListener('keydown', e => {
     if (e.key === 'Enter') intentarLogin();
   });
+
+  // ── Square: verificar callback o pago pendiente ──
+  _checkSquareCallback();
+
+  // ── Square App ID en configuración ──
+  const sqId = getSquareId();
+  const sqInput = document.getElementById('square-app-id');
+  const sqStatus = document.getElementById('square-status');
+  if (sqInput && sqId) {
+    sqInput.value = sqId;
+    if (sqStatus) { sqStatus.textContent = '✅ Square configurado'; sqStatus.style.color = 'var(--green)'; }
+  } else if (sqStatus) {
+    sqStatus.textContent = '⚠️ Sin configurar — las ventas con Tarjeta se guardan normalmente';
+    sqStatus.style.color = 'var(--text3)';
+  }
 
   setTimeout(()=>{
     document.getElementById('splash').style.opacity='0';
