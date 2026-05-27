@@ -1616,24 +1616,35 @@ async function cobrarConSquare() {
 
   const amountCents = Math.round(total * 100);
   const callbackUrl = `${location.origin}${location.pathname}?sq_ok=${encodeURIComponent(saleId)}`;
+
+  // Limpiar nombre del cliente: quitar tildes y caracteres no-ASCII
+  // (btoa solo acepta Latin-1; caracteres como á,é,ñ rompen el JSON en Square)
+  const safeClient = client
+    .replace(/[áàäâã]/gi, a => 'aáàäâã'.includes(a) ? 'a' : 'A')
+    .replace(/[éèëê]/gi,  e => 'eéèëê'.includes(e)  ? 'e' : 'E')
+    .replace(/[íìïî]/gi,  i => 'iíìïî'.includes(i)  ? 'i' : 'I')
+    .replace(/[óòöôõ]/gi, o => 'oóòöôõ'.includes(o) ? 'o' : 'O')
+    .replace(/[úùüû]/gi,  u => 'uúùüû'.includes(u)  ? 'u' : 'U')
+    .replace(/ñ/g, 'n').replace(/Ñ/g, 'N')
+    .replace(/[^\x00-\x7F]/g, '');
+
   const payload = {
     amount_money:         { amount: amountCents, currency_code: 'USD' },
     callback_url:         callbackUrl,
     client_id:            sqId,
     version:              '1.3',
-    notes:                `CACUSA | ${saleId} | ${client}`,
+    notes:                `CACUSA | ${saleId} | ${safeClient}`,
     options: {
       supported_tender_types: ['CREDIT_CARD', 'DEBIT_CARD'],
       skip_receipt_screen:    false
     }
   };
 
-  // btoa seguro con caracteres en español (tildes, ñ, etc.)
+  // Codificar: JSON → btoa → encodeURIComponent
+  // encodeURIComponent es OBLIGATORIO: base64 tiene +, /, = que rompen la URL
   let encoded;
   try {
-    const jsonStr = JSON.stringify(payload);
-    // Convertir a bytes UTF-8 y luego a base64 de forma segura
-    encoded = btoa(unescape(encodeURIComponent(jsonStr)));
+    encoded = encodeURIComponent(btoa(JSON.stringify(payload)));
   } catch(e) {
     showToast('Error al preparar el pago: ' + e.message, 'error');
     return;
