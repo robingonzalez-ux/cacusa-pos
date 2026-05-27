@@ -1627,13 +1627,34 @@ async function cobrarConSquare() {
       skip_receipt_screen:    false
     }
   };
-  const encoded = btoa(JSON.stringify(payload));
+
+  // btoa seguro con caracteres en español (tildes, ñ, etc.)
+  let encoded;
+  try {
+    const jsonStr = JSON.stringify(payload);
+    // Convertir a bytes UTF-8 y luego a base64 de forma segura
+    encoded = btoa(unescape(encodeURIComponent(jsonStr)));
+  } catch(e) {
+    showToast('Error al preparar el pago: ' + e.message, 'error');
+    return;
+  }
+
   const squareUrl = `square-commerce-v1://payment/create?data=${encoded}`;
 
-  // Mostrar banner por si el callback no llega
+  // Verificar que Square está instalado antes de intentar abrir
+  // En iOS, si la app no está instalada, window.location da error silencioso
   _mostrarPendingSquare(saleId);
 
-  window.location.href = squareUrl;
+  // Pequeño delay y luego abrir Square
+  setTimeout(() => {
+    window.location.href = squareUrl;
+    // Si después de 2.5s seguimos en la misma página, Square no está instalado
+    setTimeout(() => {
+      if (document.visibilityState !== 'hidden') {
+        showToast('⚠️ Instala "Square Point of Sale" en tu iPhone para cobrar con tarjeta', 'error');
+      }
+    }, 2500);
+  }, 100);
 }
 
 function _mostrarPendingSquare(saleId) {
