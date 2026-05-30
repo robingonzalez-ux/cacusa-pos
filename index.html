@@ -1460,6 +1460,7 @@ function generarPDF(id) {
   campo('Cliente:', s.client || '—', y);                y += 20;
   if (s.taxState) { campo('Estado:', `${s.taxState} — Tax ${s.taxRate}%`, y); y += 20; }
   campo('Método:', s.payMethod || '—', y);         y += 20;
+  if (s.status) { campo('Pago:', s.status, y);     y += 20; }
 
   // ── Tabla header ──
   y += 10;
