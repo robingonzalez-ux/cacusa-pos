@@ -872,7 +872,8 @@ let histFilter = 'Todos';
 // ════════════════════════════════════════════════════════
 //  WIFI SYNC — Servidor local en la PC
 // ════════════════════════════════════════════════════════
-const NGROK_SERVER = 'https://upfront-yearbook-fascism.ngrok-free.dev';
+// URL del servidor ngrok — se lee de Ajustes (cacusa_pc_url) o se deja vacío
+// No se usa para el callback de Square (ese es dinámico con window.location)
 
 function getPCUrl() {
   const stored = load('cacusa_pc_url','').replace(/\/+$/,'');
