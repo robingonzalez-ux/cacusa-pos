@@ -514,10 +514,11 @@
         <div class="stat-card"><div class="stat-label">Pendientes</div><div class="stat-value text-red" id="stat-pend">0</div></div>
         <div class="stat-card"><div class="stat-label">Pagados</div><div class="stat-value text-green" id="stat-paid">0</div></div>
       </div>
-      <div class="filter-tabs">
+      <div class="filter-tabs" style="display:flex;align-items:center;gap:6px;">
         <div class="filter-tab active" data-f="Todos" onclick="filterHist(this)">Todos</div>
         <div class="filter-tab" data-f="FAC" onclick="filterHist(this)">Facturas</div>
         <div class="filter-tab" data-f="OC" onclick="filterHist(this)">Órdenes</div>
+        <button onclick="sincronizarDesdeServidor()" title="Sincronizar con Excel" style="margin-left:auto;padding:5px 10px;border-radius:8px;border:1.5px solid var(--border);background:white;color:var(--text2);font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;">↓ Sync</button>
       </div>
       <div id="hist-list"></div>
     </div>
@@ -964,6 +965,79 @@ async function syncCostoWifi(cost) {
 }
 
 // ════════════════════════════════════════════════════════
+//  PULL-SYNC — descarga ventas del servidor al móvil
+//  Permite que Tita vea las de Robin, Robin las de Tita,
+//  y que cambios hechos en el Excel de la PC aparezcan en los móviles.
+// ════════════════════════════════════════════════════════
+let _syncInProgress = false;
+
+async function sincronizarDesdeServidor(silencioso = false) {
+  const url = getPCUrl();
+  if (!url || _syncInProgress) return;
+  _syncInProgress = true;
+
+  try {
+    const resp = await fetch(url + '/ventas', {
+      signal: AbortSignal.timeout(8000),
+      headers: { 'ngrok-skip-browser-warning': '1' }
+    });
+    if (!resp.ok) return;
+    const data = await resp.json();
+    if (!data.ok || !Array.isArray(data.ventas)) return;
+
+    const serverVentas = data.ventas;
+    // Clonar array local para no mutar durante iteración
+    const localSales = JSON.parse(JSON.stringify(sales));
+    const localMap   = new Map(localSales.map(s => [s.id, s]));
+
+    let added = 0, updated = 0;
+
+    for (const sv of serverVentas) {
+      if (!sv.id) continue;
+      if (!localMap.has(sv.id)) {
+        // Venta nueva (de otro usuario o creada en Excel)
+        localSales.push(sv);
+        localMap.set(sv.id, sv);
+        added++;
+      } else {
+        // Ya existe localmente — solo actualizar status si cambió en Excel
+        const local = localMap.get(sv.id);
+        if (sv.status && local.status !== sv.status) {
+          local.status = sv.status;
+          updated++;
+        }
+      }
+    }
+
+    if (added > 0 || updated > 0) {
+      // Re-ordenar por ID descendente
+      localSales.sort((a, b) => (b.id || '').localeCompare(a.id || ''));
+      sales = localSales;
+      save('cacusa_sales', sales);
+      renderHist();
+      if (!silencioso) {
+        const msg = added > 0
+          ? `↓ Sincronizado: +${added} venta${added > 1 ? 's' : ''}${updated > 0 ? `, ${updated} actualizada${updated > 1 ? 's' : ''}` : ''}`
+          : `↓ ${updated} venta${updated > 1 ? 's' : ''} actualizada${updated > 1 ? 's' : ''} desde Excel`;
+        showToast(msg, 'success');
+      }
+    }
+
+    // Actualizar timestamp de última sync
+    const ts = new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'});
+    save('last-sync', ts);
+    const lsEl = document.getElementById('last-sync-text');
+    if (lsEl) lsEl.textContent = ts;
+    actualizarWifiUI(true);
+
+  } catch(_) {
+    // Silencioso — si el servidor no está disponible, la app sigue funcionando
+  } finally {
+    _syncInProgress = false;
+  }
+}
+
+// ════════════════════════════════════════════════════════
 //  UTILS
 // ════════════════════════════════════════════════════════
 const fmt = n => '$' + (parseFloat(n)||0).toFixed(2);
@@ -1011,7 +1085,7 @@ function switchScreen(id, btn) {
   document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
   document.getElementById('screen-'+id).classList.add('active');
   btn.classList.add('active');
-  if (id==='hist') renderHist();
+  if (id==='hist') { renderHist(); sincronizarDesdeServidor(); }
   if (id==='prods') renderProds();
   if (id==='costs') renderCosts();
   if (id==='config') {
@@ -2197,6 +2271,10 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   const ls = load('last-sync','');
   const lsEl = document.getElementById('last-sync-text');
   if (ls && lsEl) lsEl.textContent = ls;
+
+  // ── Pull-sync: descargar ventas del servidor para esta sesión ──
+  // Silencioso al arrancar (no muestra toast si no hay cambios)
+  setTimeout(() => sincronizarDesdeServidor(true), 2000);
 });
 </script>
 </body>
