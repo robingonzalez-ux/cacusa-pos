@@ -1525,6 +1525,21 @@ function generarPDF(id) {
   const dSlug  = s.date.replace(/[\/\-]/g, '');
   const nombre = `${s.id}_${slug}_${dSlug}.pdf`;
   doc.save(nombre);
+
+  // Enviar PDF al servidor PC para respaldo automático en la carpeta
+  const _pcUrlPdf = getPCUrl();
+  if (_pcUrlPdf) {
+    try {
+      const _b64 = doc.output('datauristring').split(',')[1];
+      fetch(_pcUrlPdf + '/pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': '1' },
+        body: JSON.stringify({ id: s.id, type: s.type, filename: nombre, data: _b64 }),
+        signal: AbortSignal.timeout(15000)
+      }).catch(() => {});   // fallo silencioso — el PDF ya se descargó en el iPhone
+    } catch(_e) {}
+  }
+
   showToast('PDF generado — guardalo en CACUSA VENTAS de OneDrive', 'success');
 }
 
