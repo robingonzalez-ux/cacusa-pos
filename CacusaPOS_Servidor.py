@@ -401,11 +401,14 @@ def leer_ventas_de_excel():
                 })
 
         wb.close()
+        # Solo actualizar caché si la lectura fue exitosa
+        _ventas_cache.update({'ts': _time.time(), 'data': ventas})
     except Exception:
-        pass   # Si el Excel está bloqueado, devuelve caché anterior
+        # Si el Excel está bloqueado o hay error, conservar los datos anteriores del caché
+        # y retornar lo que haya (evita devolver lista vacía cuando hay datos válidos cacheados)
+        pass
 
-    _ventas_cache.update({'ts': _time.time(), 'data': ventas})
-    return ventas
+    return _ventas_cache['data']
 
 
 @flask_app.route('/ventas', methods=['GET', 'OPTIONS'])
@@ -612,4 +615,5 @@ class ServerUI(tk.Tk):
 
 if __name__ == '__main__':
     ui = ServerUI()
+    ui.mainloop()
     ui.mainloop()

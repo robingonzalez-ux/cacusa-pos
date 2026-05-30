@@ -904,7 +904,7 @@ async function probarConexion() {
   if (!url) { res.textContent = '⚠ Ingresa la dirección del PC primero'; res.style.color='var(--red)'; return; }
   res.textContent = 'Probando conexión...'; res.style.color='var(--text2)';
   try {
-    const r = await fetch(url+'/ping', { signal: AbortSignal.timeout(4000) });
+    const r = await fetch(url+'/ping', { signal: AbortSignal.timeout(4000), headers: {'ngrok-skip-browser-warning':'1'} });
     const j = await r.json();
     if (j.ok) {
       res.textContent = '✅ ¡Conectado! El servidor está activo.'; res.style.color='var(--green)';
@@ -937,7 +937,7 @@ async function enviarAlServidor(endpoint, data) {
   try {
     const r = await fetch(url+'/'+endpoint, {
       method:'POST',
-      headers:{'Content-Type':'application/json'},
+      headers:{'Content-Type':'application/json', 'ngrok-skip-browser-warning':'1'},
       body: JSON.stringify(data),
       signal: AbortSignal.timeout(5000)
     });
