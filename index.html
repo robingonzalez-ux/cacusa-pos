@@ -987,20 +987,26 @@ async function sincronizarDesdeServidor(silencioso = false) {
 
     const serverVentas = data.ventas;
     // Clonar array local para no mutar durante iteración
-    const localSales = JSON.parse(JSON.stringify(sales));
-    const localMap   = new Map(localSales.map(s => [s.id, s]));
+    let localSales = JSON.parse(JSON.stringify(sales));
+    const localMap = new Map(localSales.map(s => [s.id, s]));
+    const toRemove = new Set();   // IDs marcados como Eliminado en servidor
 
     let added = 0, updated = 0;
 
     for (const sv of serverVentas) {
       if (!sv.id) continue;
+      // Si el servidor marcó esta venta como Eliminada → quitarla localmente
+      if (sv.status === 'Eliminado') {
+        if (localMap.has(sv.id)) toRemove.add(sv.id);
+        continue;
+      }
       if (!localMap.has(sv.id)) {
         // Venta nueva (de otro usuario o creada en Excel)
         localSales.push(sv);
         localMap.set(sv.id, sv);
         added++;
       } else {
-        // Ya existe localmente — solo actualizar status si cambió en Excel
+        // Ya existe localmente — actualizar status si cambió en Excel
         const local = localMap.get(sv.id);
         if (sv.status && local.status !== sv.status) {
           local.status = sv.status;
@@ -1009,17 +1015,22 @@ async function sincronizarDesdeServidor(silencioso = false) {
       }
     }
 
-    if (added > 0 || updated > 0) {
+    // Aplicar eliminaciones sincronizadas desde servidor
+    const removed = toRemove.size;
+    if (removed > 0) localSales = localSales.filter(s => !toRemove.has(s.id));
+
+    if (added > 0 || updated > 0 || removed > 0) {
       // Re-ordenar por ID descendente
       localSales.sort((a, b) => (b.id || '').localeCompare(a.id || ''));
       sales = localSales;
       save('cacusa_sales', sales);
       renderHist();
       if (!silencioso) {
-        const msg = added > 0
-          ? `↓ Sincronizado: +${added} venta${added > 1 ? 's' : ''}${updated > 0 ? `, ${updated} actualizada${updated > 1 ? 's' : ''}` : ''}`
-          : `↓ ${updated} venta${updated > 1 ? 's' : ''} actualizada${updated > 1 ? 's' : ''} desde Excel`;
-        showToast(msg, 'success');
+        const parts = [];
+        if (added   > 0) parts.push(`+${added} nueva${added>1?'s':''}`);
+        if (updated > 0) parts.push(`${updated} actualizada${updated>1?'s':''}`);
+        if (removed > 0) parts.push(`${removed} eliminada${removed>1?'s':''}`);
+        showToast(`↓ Sync: ${parts.join(', ')}`, 'success');
       }
     }
 
@@ -1322,6 +1333,11 @@ function cycleStatus(e,id) {
   const st=['Pendiente','Pagado','Cancelado'];
   s.status=st[(st.indexOf(s.status)+1)%st.length];
   save('cacusa_sales',sales); renderHist(); showToast('Estado: '+s.status,'success');
+  // Sincronizar con servidor
+  const _u=getPCUrl(); if(_u){
+    fetch(_u+'/actualizar-venta',{method:'POST',headers:{'Content-Type':'application/json','ngrok-skip-browser-warning':'1'},
+      body:JSON.stringify({id:s.id,type:s.type,status:s.status}),signal:AbortSignal.timeout(8000)}).catch(()=>{});
+  }
 }
 
 function openSaleDetail(id) {
@@ -1372,12 +1388,23 @@ function cycleStatusFromDetail(id) {
   const st=['Pendiente','Pagado','Cancelado'];
   s.status=st[(st.indexOf(s.status)+1)%st.length];
   save('cacusa_sales',sales); openSaleDetail(id); renderHist(); showToast('Estado: '+s.status,'success');
+  // Sincronizar con servidor: actualiza Excel + regenera PDF
+  const _u=getPCUrl(); if(_u){
+    fetch(_u+'/actualizar-venta',{method:'POST',headers:{'Content-Type':'application/json','ngrok-skip-browser-warning':'1'},
+      body:JSON.stringify({id:s.id,type:s.type,status:s.status}),signal:AbortSignal.timeout(8000)}).catch(()=>{});
+  }
 }
 
 function deleteSale(id) {
-  if(!confirm('¿Eliminar?')) return;
-  sales=sales.filter(s=>s.id!==id); save('cacusa_sales',sales);
+  if(!confirm('¿Eliminar? Esta acción no se puede deshacer.')) return;
+  const s=sales.find(x=>x.id===id);
+  sales=sales.filter(x=>x.id!==id); save('cacusa_sales',sales);
   closeModal('modal-saledetail'); renderHist(); showToast('Eliminado','error');
+  // Sincronizar con servidor: marca como Eliminado en Excel y borra PDF de la carpeta
+  if(s){ const _u=getPCUrl(); if(_u){
+    fetch(_u+'/eliminar-venta',{method:'POST',headers:{'Content-Type':'application/json','ngrok-skip-browser-warning':'1'},
+      body:JSON.stringify({id:s.id,type:s.type}),signal:AbortSignal.timeout(8000)}).catch(()=>{});
+  }}
 }
 
 function generarPDF(id) {
