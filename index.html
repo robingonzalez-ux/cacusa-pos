@@ -99,6 +99,11 @@
       box-shadow:0 4px 16px rgba(0,106,255,0.35); letter-spacing:0.5px; margin-top:8px; }
     .btn-square.show { display:block; }
     .btn-square:active { opacity:0.85; }
+    .btn-square-link { width:100%; padding:13px; border-radius:12px; background:white; color:#006AFF;
+      border:2px solid #006AFF; font-size:14px; font-weight:700; cursor:pointer; display:none;
+      letter-spacing:0.3px; margin-top:8px; }
+    .btn-square-link.show { display:block; }
+    .btn-square-link:active { background:#f0f7ff; }
     .sq-pending-bar { background:#006AFF; color:white; padding:12px 14px; border-radius:12px;
       display:none; margin:8px 14px; text-align:center; font-size:13px; font-weight:600; cursor:pointer; }
     .sq-pending-bar.show { display:flex; align-items:center; justify-content:space-between; gap:8px; }
@@ -468,9 +473,10 @@
           </div>
         </div>
         <!-- Banner Square pago pendiente -->
-        <div class="sq-pending-bar" id="sq-pending-bar" onclick="confirmarPagoSquare()">
-          <span>💳 Pago en Square pendiente — ¿Completado?</span>
-          <span style="background:white;color:#006AFF;border-radius:8px;padding:4px 10px;font-size:12px;font-weight:700;white-space:nowrap;">✓ Confirmar</span>
+        <div class="sq-pending-bar" id="sq-pending-bar">
+          <span style="flex:1;" onclick="confirmarPagoSquare()">💳 Pago Square pendiente — <span id="sq-pending-id" style="opacity:0.85;font-size:11px;"></span></span>
+          <span onclick="confirmarPagoSquare()" style="background:white;color:#006AFF;border-radius:8px;padding:4px 10px;font-size:12px;font-weight:700;white-space:nowrap;cursor:pointer;">✓ Confirmar</span>
+          <span onclick="descartarPendingSquare()" style="background:rgba(255,255,255,0.2);border-radius:8px;padding:4px 8px;font-size:14px;font-weight:700;white-space:nowrap;cursor:pointer;margin-left:2px;">✕</span>
         </div>
         <div id="cart-items"></div>
         <div class="dije-row" id="dije-row" style="display:none;">
@@ -556,20 +562,20 @@
           <div style="display:flex; align-items:center; gap:12px; margin-bottom:14px;">
             <div style="font-size:28px; line-height:1;">🖥️</div>
             <div style="flex:1;">
-              <div style="font-size:15px; font-weight:700; color:var(--text);">Conexión WiFi con la PC</div>
+              <div style="font-size:15px; font-weight:700; color:var(--text);">Sincronización con Excel (opcional)</div>
               <div style="font-size:12px; color:var(--text2);" id="wifi-status-text">No conectado</div>
             </div>
             <div id="wifi-status-dot" style="width:10px;height:10px;border-radius:5px;background:var(--text3); flex-shrink:0;"></div>
           </div>
 
           <div class="info-box" style="margin-bottom:14px;">
-            <p>Cada venta se guarda <strong>al instante</strong> en tu Excel cuando tu iPhone y tu PC están en el mismo WiFi y el servidor está abierto en la PC.</p>
+            <p>La app funciona <strong>100% desde internet</strong> sin necesidad de la PC. Si quieres que las ventas también se guarden en tu Excel, ingresa la URL de ngrok cuando el servidor esté abierto en la PC.</p>
           </div>
 
           <div class="input-group">
-            <label class="input-label">Dirección del PC (la que muestra el servidor)</label>
+            <label class="input-label">URL del servidor ngrok (PC debe estar encendida)</label>
             <div style="display:flex; gap:8px;">
-              <input class="input-field" id="pc-ip-input" placeholder="Ej: 192.168.1.5:5678" style="flex:1;" oninput="guardarIP()">
+              <input class="input-field" id="pc-ip-input" placeholder="Ej: https://xxxx.ngrok-free.app" style="flex:1;" oninput="guardarIP()">
               <button class="btn btn-gold" onclick="probarConexion()" style="white-space:nowrap;">Probar</button>
             </div>
           </div>
@@ -577,34 +583,37 @@
         </div>
         </div>
 
-        <!-- App info -->
-        <div class="settings-card" style="margin-top:4px;">
-          <div class="settings-row">
-            <div><div class="settings-row-label">Versión</div></div>
-            <div class="settings-row-right">2.0 · OneDrive Sync</div>
-          </div>
-          <div class="settings-row">
-            <div><div class="settings-row-label">Archivo Excel</div><div class="settings-row-sub">CacusaPOS_v2.xlsm</div></div>
-            <div class="settings-row-right" style="color:var(--green);" id="file-status">—</div>
-          </div>
-          <div class="settings-row">
-            <div><div class="settings-row-label">Última sincronización</div></div>
-            <div class="settings-row-right" id="last-sync-text">—</div>
-          </div>
-        </div>
-
         <!-- Square -->
         <div class="settings-card">
-          <div class="settings-row" style="flex-direction:column; align-items:flex-start; gap:10px; padding-bottom:14px;">
-            <div style="display:flex;align-items:center;gap:8px;">
-              <div style="width:28px;height:28px;background:#006AFF;border-radius:7px;display:flex;align-items:center;justify-content:center;">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="white"><rect x="3" y="3" width="18" height="18" rx="3"/></svg>
-              </div>
-              <div class="settings-row-label" style="margin:0;">Square — Cobro con tarjeta</div>
+          <div style="display:flex;align-items:center;gap:8px;padding:14px 0 10px;">
+            <div style="width:28px;height:28px;background:#006AFF;border-radius:7px;display:flex;align-items:center;justify-content:center;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="white"><rect x="3" y="3" width="18" height="18" rx="3"/></svg>
             </div>
-            <div class="settings-row-sub" style="margin-top:-4px;">Ingresa tu Application ID de Square para cobrar directamente desde la app. Obtenlo gratis en <strong>developer.squareup.com</strong></div>
+            <div class="settings-row-label" style="margin:0;">Square — Cobro con tarjeta</div>
+          </div>
+
+          <!-- Sección 1: App ID (cobro presencial) -->
+          <div style="border-top:1px solid var(--border);padding:12px 0 4px;">
+            <div style="font-size:11px;font-weight:700;color:var(--text2);letter-spacing:0.5px;margin-bottom:4px;">📱 COBRO PRESENCIAL (POS)</div>
+            <div class="settings-row-sub" style="margin-bottom:8px;">Abre Square en tu iPhone y cobra con el lector. Obtén el Application ID en <strong>developer.squareup.com</strong></div>
             <input class="input-field" id="square-app-id" type="text" placeholder="sq0idp-XXXXXXXXXXXXXXXX" oninput="save('cacusa_square_id',this.value.trim())" style="width:100%;margin:0;" autocapitalize="none" autocorrect="off" spellcheck="false">
-            <div id="square-status" style="font-size:12px;margin-top:-4px;"></div>
+            <div id="square-status" style="font-size:12px;margin-top:4px;"></div>
+          </div>
+
+          <!-- Sección 2: Token + Location (links de pago online) -->
+          <div style="border-top:1px solid var(--border);padding:12px 0 4px;">
+            <div style="font-size:11px;font-weight:700;color:var(--text2);letter-spacing:0.5px;margin-bottom:4px;">🔗 LINKS DE PAGO ONLINE</div>
+            <div class="settings-row-sub" style="margin-bottom:8px;">Genera links para enviar por WhatsApp o email. Necesitas el <strong>Access Token</strong> y <strong>Location ID</strong> de <strong>developer.squareup.com → Credentials</strong></div>
+
+            <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:4px;">Access Token</div>
+            <input class="input-field" id="square-api-token" type="password" placeholder="EAAAl..." oninput="save('cacusa_square_token',this.value.trim())" style="width:100%;margin:0 0 10px;" autocapitalize="none" autocorrect="off" spellcheck="false">
+
+            <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:4px;">Location ID</div>
+            <div style="display:flex;gap:8px;margin-bottom:4px;">
+              <input class="input-field" id="square-location-id" type="text" placeholder="LXXXXXXXXXXXXXXXX" oninput="save('cacusa_square_location',this.value.trim())" style="flex:1;margin:0;" autocapitalize="none" autocorrect="off" spellcheck="false">
+              <button class="btn" onclick="autoFetchSquareLocation()" style="white-space:nowrap;padding:0 14px;font-size:12px;font-weight:700;">Auto ↓</button>
+            </div>
+            <div id="square-location-status" style="font-size:11px;color:var(--text3);min-height:16px;"></div>
           </div>
         </div>
 
@@ -619,23 +628,14 @@
           </div>
         </div>
 
-        <!-- Danger zone -->
-        <div class="settings-card">
-          <div class="settings-row" style="cursor:pointer;" onclick="clearAllData()">
-            <div><div class="settings-row-label" style="color:var(--red);">Borrar datos locales</div><div class="settings-row-sub">Elimina ventas y costos guardados en el iPhone</div></div>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
-          </div>
-        </div>
-
         <!-- Instrucciones -->
         <div class="settings-card">
           <div style="padding:4px 2px;">
-            <div style="font-size:13px; font-weight:700; color:var(--text); margin-bottom:12px;">📋 Cómo configurarlo (solo una vez)</div>
-            <div class="step-row"><div class="step-num">1</div><div class="step-text">En tu <strong>PC</strong>, abre <strong>"ABRIR Servidor WiFi.bat"</strong> — se abre una ventana rosada</div></div>
-            <div class="step-row"><div class="step-num">2</div><div class="step-text">La ventana muestra una dirección como <code>http://192.168.1.5:5678</code> — <strong>cópiala</strong></div></div>
-            <div class="step-row"><div class="step-num">3</div><div class="step-text">Abre esa dirección en <strong>Safari del iPhone</strong> — la app se abrirá directamente y se configurará sola ✅</div></div>
-            <div class="step-row"><div class="step-num">4</div><div class="step-text">En Safari, toca <strong>Compartir → Agregar a pantalla de inicio</strong> para guardarla como app</div></div>
-            <div class="step-row"><div class="step-num">5</div><div class="step-text">¡Listo! Cada venta se guarda <strong>automáticamente en tu Excel</strong> al confirmarla</div></div>
+            <div style="font-size:13px; font-weight:700; color:var(--text); margin-bottom:12px;">📋 Sincronización con Excel (opcional)</div>
+            <div class="step-row"><div class="step-num">1</div><div class="step-text">En tu <strong>PC</strong>, abre <strong>"ABRIR Servidor WiFi.bat"</strong> — se abre una ventana rosada con la URL de ngrok</div></div>
+            <div class="step-row"><div class="step-num">2</div><div class="step-text">Copia la URL <strong>https://xxxx.ngrok-free.app</strong> que aparece en la ventana del servidor</div></div>
+            <div class="step-row"><div class="step-num">3</div><div class="step-text">Pégala en el campo <strong>"URL del servidor ngrok"</strong> de arriba y toca <strong>Probar</strong></div></div>
+            <div class="step-row"><div class="step-num">4</div><div class="step-text">¡Listo! Cada venta se guarda <strong>automáticamente en tu Excel</strong> mientras la PC esté encendida con el servidor</div></div>
           </div>
         </div>
 
@@ -643,7 +643,7 @@
         <div class="settings-card">
           <div class="settings-row">
             <div class="settings-row-label">Versión</div>
-            <div class="settings-row-right">3.0 · WiFi Sync</div>
+            <div class="settings-row-right">4.0 · GitHub Pages</div>
           </div>
           <div class="settings-row">
             <div><div class="settings-row-label">Última sincronización</div></div>
@@ -731,6 +731,7 @@
         <div class="total-row grand"><span>TOTAL</span><span id="co-total">$0.00</span></div>
       </div>
       <button class="btn-square" id="btn-square" onclick="cobrarConSquare()">💳 Cobrar con Square →</button>
+      <button class="btn-square-link" id="btn-square-link" onclick="generarLinkSquare()">🔗 Generar Link de Pago →</button>
       <button class="btn btn-gold btn-full" onclick="confirmSale()" id="confirm-btn">✓ Confirmar y Registrar</button>
     </div>
   </div>
@@ -876,14 +877,11 @@ const NGROK_SERVER = 'https://upfront-yearbook-fascism.ngrok-free.dev';
 function getPCUrl() {
   const stored = load('cacusa_pc_url','').replace(/\/+$/,'');
   if (stored) return stored;
-  // Auto-detect ngrok: si la app corre desde el dominio ngrok, usar ese mismo origen
-  if (location.hostname === 'upfront-yearbook-fascism.ngrok-free.dev') {
-    return NGROK_SERVER;
-  }
-  // Auto-detect local: si la app corre via HTTP desde una IP local
+  // Auto-detect local: si la app corre via HTTP desde una IP local (no localhost ni GitHub Pages)
   if (location.protocol === 'http:' &&
       location.hostname !== 'localhost' &&
-      location.hostname !== '127.0.0.1') {
+      location.hostname !== '127.0.0.1' &&
+      !location.hostname.includes('github.io')) {
     return location.origin;
   }
   return '';
@@ -891,7 +889,9 @@ function getPCUrl() {
 
 function guardarIP() {
   const v = document.getElementById('pc-ip-input').value.trim();
-  const url = v.startsWith('http') ? v : 'http://'+v;
+  // Si el usuario pega una URL ngrok completa (https://...) se guarda tal cual;
+  // si pone solo una IP local se agrega http://
+  const url = v.startsWith('http') ? v : (v ? 'http://'+v : '');
   save('cacusa_pc_url', url);
 }
 
@@ -909,7 +909,7 @@ async function probarConexion() {
       actualizarWifiUI(true);
     } else throw new Error();
   } catch {
-    res.textContent = '❌ No se pudo conectar. Verifica que el servidor esté abierto en la PC y que estés en el mismo WiFi.';
+    res.textContent = '❌ No se pudo conectar. Verifica que el servidor esté abierto en la PC y que la URL ngrok sea correcta.';
     res.style.color='var(--red)'; actualizarWifiUI(false);
   }
 }
@@ -972,10 +972,21 @@ function catColor(cat) {
 }
 function today() { const d=new Date(); return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`; }
 function nextId(type) {
-  const prefix = type==='FAC'?'FAC':'OC';
-  const year = new Date().getFullYear();
-  const existing = sales.filter(s=>s.type===type);
-  return `${prefix}-${year}-${String(existing.length+1).padStart(3,'0')}`;
+  const prefix  = type === 'FAC' ? 'FAC' : 'OC';
+  const year    = new Date().getFullYear();
+  const yearStr = String(year);
+  // Buscar el número más alto ya existente para ese tipo y año — evita duplicados si se borran ventas
+  let maxNum = 0;
+  for (const s of sales) {
+    if (s.type === type && s.id) {
+      const parts = s.id.split('-');
+      if (parts.length === 3 && parts[1] === yearStr) {
+        const n = parseInt(parts[2], 10);
+        if (!isNaN(n) && n > maxNum) maxNum = n;
+      }
+    }
+  }
+  return `${prefix}-${year}-${String(maxNum + 1).padStart(3,'0')}`;
 }
 function getTaxInfo() {
   const val = document.getElementById('pos-state')?.value||'';
@@ -1126,7 +1137,12 @@ function openCheckout(type) {
   document.querySelectorAll('.pay-btn').forEach(b=>b.classList.remove('selected'));
   document.querySelector('[data-pay="Efectivo"]').classList.add('selected');
   const sqBtn = document.getElementById('btn-square');
-  if (sqBtn) sqBtn.classList.remove('show'); // ocultar al abrir (Efectivo seleccionado)
+  if (sqBtn) sqBtn.classList.remove('show');
+  const sqLinkBtn = document.getElementById('btn-square-link');
+  if (sqLinkBtn) sqLinkBtn.classList.remove('show'); // ocultar ambos al abrir (Efectivo seleccionado)
+  // Ocultar el banner de Square de una venta anterior mientras se procesa una nueva.
+  // La venta anterior sigue en historial como Pendiente para confirmación manual.
+  _ocultarBarSquare();
   recalcCheckout(); openModal('modal-checkout');
 }
 
@@ -1431,7 +1447,7 @@ function generarPDF(id) {
 
   // ── Guardar ──
   const slug   = s.client.trim().replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_]/g, '');
-  const dSlug  = s.date.replace(/-/g, '');
+  const dSlug  = s.date.replace(/[\/\-]/g, '');
   const nombre = `${s.id}_${slug}_${dSlug}.pdf`;
   doc.save(nombre);
   showToast('PDF generado — guardalo en CACUSA VENTAS de OneDrive', 'success');
@@ -1560,15 +1576,20 @@ function exportarVentas() {
 // ════════════════════════════════════════
 //  SQUARE POS INTEGRATION
 // ════════════════════════════════════════
-function getSquareId() { return load('cacusa_square_id','').trim(); }
+function getSquareId()       { return load('cacusa_square_id','').trim(); }
+function getSquareToken()    { return load('cacusa_square_token','').trim(); }
+function getSquareLocation() { return load('cacusa_square_location','').trim(); }
 
 function selectPay(el) {
   document.querySelectorAll('.pay-btn').forEach(b => b.classList.remove('selected'));
   el.classList.add('selected');
-  // Mostrar/ocultar botón Square
   const isTarjeta = el.dataset.pay === 'Tarjeta';
+  // Botón POS presencial (requiere App ID)
   const sqBtn = document.getElementById('btn-square');
   if (sqBtn) sqBtn.classList.toggle('show', isTarjeta && !!getSquareId());
+  // Botón link de pago online (requiere Token + Location)
+  const sqLinkBtn = document.getElementById('btn-square-link');
+  if (sqLinkBtn) sqLinkBtn.classList.toggle('show', isTarjeta && !!getSquareToken() && !!getSquareLocation());
   recalcCheckout();
 }
 
@@ -1615,16 +1636,24 @@ async function cobrarConSquare() {
   await new Promise(r => setTimeout(r, 800));
 
   const amountCents = Math.round(total * 100);
-  const callbackUrl = `${location.origin}${location.pathname}?sq_ok=${encodeURIComponent(saleId)}`;
+  // Square compara callback_url EXACTAMENTE con lo registrado en el portal (sin query ni path).
+  // El saleId ya está guardado en cacusa_square_pending (localStorage), Square lo devuelve
+  // con ?data=BASE64 y _checkSquareCallback lo recupera de ahí.
+  // URL de callback dinámica — funciona desde GitHub Pages, ngrok o local
+  // Square redirige a esta URL con ?data=... al terminar el pago
+  const callbackUrl = window.location.href.split('?')[0].split('#')[0];
 
   const payload = {
-    amount_money:         { amount: amountCents, currency_code: 'USD' },
-    callback_url:         callbackUrl,
-    client_id:            sqId,
-    version:              '1.3',
-    notes:                `CACUSA | ${saleId} | ${client}`,
+    amount_money:  { amount: amountCents, currency_code: 'USD' },
+    callback_url:  callbackUrl,
+    client_id:     sqId,
+    version:       '1.3',
+    notes:         `CACUSA ${saleId} ${client}`,
     options: {
-      supported_tender_types: ['CREDIT_CARD', 'DEBIT_CARD'],
+      // En Square iOS POS v1.3, CREDIT_CARD cubre tanto crédito COMO débito.
+      // No existe DEBIT_CARD como tipo separado — causaba error INVALID_REQUEST.
+      // SQUARE_GIFT_CARD y CASH se agregan por si el cliente prefiere esos métodos.
+      supported_tender_types: ['CREDIT_CARD', 'CASH', 'SQUARE_GIFT_CARD', 'CARD_ON_FILE'],
       skip_receipt_screen:    false
     }
   };
@@ -1633,9 +1662,14 @@ async function cobrarConSquare() {
   // Referencia: documentación oficial de Square iOS POS API
   const squareUrl = `square-commerce-v1://payment/create?data=${encodeURIComponent(JSON.stringify(payload))}`;
 
-  // Verificar que Square está instalado antes de intentar abrir
-  // En iOS, si la app no está instalada, window.location da error silencioso
+  // Si había un banner de Square de una venta anterior, descartarlo silenciosamente.
+  // La venta anterior queda en historial como Pendiente para revisión manual.
+  _ocultarBarSquare();
+  // Mostrar banner para la nueva venta
   _mostrarPendingSquare(saleId);
+
+  save('cacusa_sq_sent_at', Date.now());  // para detectar si Square ignoró el callback
+  console.log('[Square] URL enviada:', squareUrl);
 
   // Pequeño delay y luego abrir Square
   setTimeout(() => {
@@ -1649,10 +1683,195 @@ async function cobrarConSquare() {
   }, 100);
 }
 
+// ─── Link de pago Square (online) ───────────────────────────────────────────
+
+async function generarLinkSquare() {
+  const sqToken    = getSquareToken();
+  const sqLocation = getSquareLocation();
+  if (!sqToken)    { showToast('Configura tu Square Access Token en Ajustes','error'); return; }
+  if (!sqLocation) { showToast('Configura tu Square Location ID en Ajustes','error'); return; }
+
+  const client   = document.getElementById('pos-client').value.trim();
+  const reseller = document.getElementById('checkout-reseller').checked;
+  const shipping = parseFloat(document.getElementById('checkout-shipping').value) || 0;
+  const usps     = parseFloat(document.getElementById('checkout-usps').value) || 0;
+  const dije     = dijeQty * 5;
+  const { state, rate } = getTaxInfo();
+  const sub    = cart.reduce((s, i) => s + i.price * i.qty, 0);
+  const tax    = reseller ? 0 : (sub + dije) * (rate / 100);
+  const ccFee  = Math.round((sub + dije + tax) * 0.04 * 100) / 100;
+  const total  = sub + dije + tax + shipping + ccFee;
+  const saleId = nextId(currentDocType);
+
+  // Guardar venta como Pendiente
+  const sale = {
+    id: saleId, type: currentDocType, client, date: today(),
+    items: JSON.parse(JSON.stringify(cart)), dije, dijeQty,
+    subtotal: sub, tax, taxRate: rate, taxState: state,
+    shipping, usps, ccFee, total,
+    payMethod: 'Link Square', reseller: reseller ? 'SÍ' : 'NO',
+    status: 'Pendiente', created: Date.now()
+  };
+  sales.unshift(sale);
+  save('cacusa_sales', sales);
+
+  // Limpiar carrito y cerrar checkout
+  cart = []; dijeQty = 0;
+  document.getElementById('dije-qty-display').textContent = '0';
+  document.getElementById('pos-client').value = '';
+  renderCart();
+  closeModal('modal-checkout');
+  showToast('Generando link de pago Square…', 'info');
+
+  try {
+    // Llamada DIRECTA a la API de Square desde el iPhone — no requiere la PC
+    const resp = await fetch('https://connect.squareup.com/v2/online-checkout/payment-links', {
+      method: 'POST',
+      headers: {
+        'Authorization':  `Bearer ${sqToken}`,
+        'Content-Type':   'application/json',
+        'Square-Version': '2024-01-17'
+      },
+      body: JSON.stringify({
+        idempotency_key: saleId,
+        quick_pay: {
+          name:        `CACUSA ${saleId} — ${client}`,
+          price_money: { amount: Math.round(total * 100), currency: 'USD' },
+          location_id: sqLocation
+        }
+      })
+    });
+
+    const result = await resp.json();
+
+    if (!resp.ok) {
+      const errMsg = (result.errors || [{}])[0]?.detail || JSON.stringify(result);
+      showToast(`Error Square: ${errMsg}`, 'error');
+      return;
+    }
+
+    const url = result.payment_link?.url;
+    if (url) {
+      mostrarLinkSquare(url, saleId, total);
+      syncVentaWifi(sale);   // sincronizar con Excel si la PC está encendida
+    } else {
+      showToast('Square no devolvió URL de pago', 'error');
+    }
+  } catch(e) {
+    showToast(`Error al conectar con Square: ${e.message}`, 'error');
+  }
+}
+
+function mostrarLinkSquare(url, saleId, total) {
+  document.querySelector('.sq-link-overlay')?.remove();
+
+  const overlay = document.createElement('div');
+  overlay.className = 'sq-link-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:9000;display:flex;align-items:flex-end;justify-content:center;';
+
+  const card = document.createElement('div');
+  card.style.cssText = 'background:white;border-radius:20px 20px 0 0;padding:24px 20px 36px;max-width:440px;width:100%;';
+
+  // Handle bar
+  const handle = document.createElement('div');
+  handle.style.cssText = 'width:40px;height:4px;background:#e0e0e0;border-radius:2px;margin:0 auto 16px;';
+
+  // Header
+  const hdr = document.createElement('div');
+  hdr.style.cssText = 'display:flex;align-items:center;gap:12px;margin-bottom:16px;';
+  hdr.innerHTML = `
+    <div style="width:40px;height:40px;background:#006AFF;border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><rect x="3" y="3" width="18" height="18" rx="3"/></svg>
+    </div>
+    <div>
+      <div style="font-size:17px;font-weight:700;">Link de Pago Listo 🔗</div>
+      <div style="font-size:12px;color:#888;">${saleId} · $${total.toFixed(2)} · Pendiente de pago</div>
+    </div>`;
+
+  // URL box
+  const urlBox = document.createElement('div');
+  urlBox.style.cssText = 'background:#f0f4ff;border-radius:10px;padding:12px 14px;font-size:12px;color:#334;word-break:break-all;margin-bottom:16px;border:1px solid #d8e0ff;line-height:1.5;';
+  urlBox.textContent = url;
+
+  // Copy button
+  const btnCopy = document.createElement('button');
+  btnCopy.style.cssText = 'width:100%;background:#006AFF;color:white;border:none;padding:15px;border-radius:12px;font-size:15px;font-weight:700;margin-bottom:10px;cursor:pointer;';
+  btnCopy.textContent = '📋 Copiar Link';
+  btnCopy.onclick = () => {
+    navigator.clipboard.writeText(url)
+      .then(() => { btnCopy.textContent = '✅ ¡Copiado!'; setTimeout(() => { btnCopy.textContent = '📋 Copiar Link'; }, 2500); })
+      .catch(() => showToast('No se pudo copiar — cópialo manualmente', 'error'));
+  };
+
+  // Share button (iOS Web Share API)
+  const btnShare = document.createElement('button');
+  btnShare.style.cssText = 'width:100%;background:#f0f7ff;color:#006AFF;border:2px solid #006AFF;padding:13px;border-radius:12px;font-size:14px;font-weight:700;margin-bottom:10px;cursor:pointer;';
+  btnShare.textContent = navigator.share ? '↗ Compartir por WhatsApp / Email…' : '↗ Abrir Link en el navegador';
+  btnShare.onclick = () => {
+    if (navigator.share) {
+      navigator.share({ title: `Pago CACUSA ${saleId}`, text: `Tu link de pago: ${url}`, url });
+    } else {
+      window.open(url, '_blank');
+    }
+  };
+
+  // Close button
+  const btnClose = document.createElement('button');
+  btnClose.style.cssText = 'width:100%;background:#f5f5f5;color:#666;border:none;padding:13px;border-radius:12px;font-size:14px;cursor:pointer;';
+  btnClose.textContent = 'Cerrar';
+  btnClose.onclick = () => overlay.remove();
+
+  card.append(handle, hdr, urlBox, btnCopy, btnShare, btnClose);
+  overlay.appendChild(card);
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  document.body.appendChild(overlay);
+}
+
+async function autoFetchSquareLocation() {
+  const token = getSquareToken();
+  if (!token) { showToast('Primero ingresa tu Access Token', 'error'); return; }
+
+  const statusEl = document.getElementById('square-location-status');
+  if (statusEl) { statusEl.textContent = '⏳ Buscando locations…'; statusEl.style.color = 'var(--text3)'; }
+
+  try {
+    // Llamada DIRECTA a Square — no requiere la PC
+    const resp = await fetch('https://connect.squareup.com/v2/locations', {
+      headers: {
+        'Authorization':  `Bearer ${token}`,
+        'Square-Version': '2024-01-17'
+      }
+    });
+    const result = await resp.json();
+
+    if (!resp.ok) {
+      const errMsg = (result.errors || [{}])[0]?.detail || 'Token incorrecto';
+      if (statusEl) { statusEl.textContent = `❌ ${errMsg}`; statusEl.style.color = 'var(--red)'; }
+      return;
+    }
+
+    const locations = result.locations || [];
+    if (locations.length > 0) {
+      const active = locations.find(l => l.status === 'ACTIVE') || locations[0];
+      save('cacusa_square_location', active.id);
+      const el = document.getElementById('square-location-id');
+      if (el) el.value = active.id;
+      if (statusEl) { statusEl.textContent = `✅ ${active.name} — ${active.id}`; statusEl.style.color = 'var(--green)'; }
+      showToast(`Location encontrada: ${active.name}`, 'success');
+    } else {
+      if (statusEl) { statusEl.textContent = 'No se encontraron locations activas'; statusEl.style.color = 'var(--red)'; }
+    }
+  } catch(e) {
+    if (statusEl) { statusEl.textContent = `Error de red: ${e.message}`; statusEl.style.color = 'var(--red)'; }
+  }
+}
+
 function _mostrarPendingSquare(saleId) {
   const bar = document.getElementById('sq-pending-bar');
   if (bar) {
     bar.dataset.saleid = saleId;
+    const lbl = document.getElementById('sq-pending-id');
+    if (lbl) lbl.textContent = saleId ? `(${saleId})` : '';
     bar.classList.add('show');
   }
 }
@@ -1660,7 +1879,7 @@ function _mostrarPendingSquare(saleId) {
 function confirmarPagoSquare(saleId) {
   const bar = document.getElementById('sq-pending-bar');
   const id = saleId || bar?.dataset.saleid || load('cacusa_square_pending','');
-  if (!id) return;
+  if (!id) { _ocultarBarSquare(); return; }
   const sale = sales.find(s => s.id === id);
   if (sale) {
     sale.status = 'Pagado';
@@ -1670,38 +1889,138 @@ function confirmarPagoSquare(saleId) {
     syncVentaWifi(sale);
   }
   save('cacusa_square_pending', '');
-  if (bar) bar.classList.remove('show');
+  _ocultarBarSquare();
   renderHist();
 }
 
+// Descartar el banner sin confirmar el pago (el pago quedó en Pendiente en historial)
+function descartarPendingSquare() {
+  save('cacusa_square_pending', '');
+  save('cacusa_sq_sent_at', '');   // evita que reaparezca si la página recarga dentro de los 5 min
+  _ocultarBarSquare();
+  showToast('Banner cerrado — la venta sigue en Pendiente en el historial', 'info');
+}
+
+function _ocultarBarSquare() {
+  const bar = document.getElementById('sq-pending-bar');
+  if (bar) { bar.classList.remove('show'); bar.dataset.saleid = ''; }
+  const lbl = document.getElementById('sq-pending-id');
+  if (lbl) lbl.textContent = '';
+}
+
+function _sqDebugAlert(msg) {
+  // Debug temporal — muestra un overlay que NO desaparece hasta que el usuario lo cierra
+  save('cacusa_sq_debug', msg);
+  const el = document.createElement('div');
+  el.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.85);color:#fff;z-index:9999;padding:24px;font-size:13px;font-family:monospace;overflow:auto;';
+  el.innerHTML = `<div style="font-size:16px;font-weight:700;margin-bottom:12px;">🔍 Square Debug</div>`
+               + `<pre style="white-space:pre-wrap;word-break:break-all;">${msg}</pre>`
+               + `<button onclick="this.parentNode.remove()" style="margin-top:20px;background:#e05;color:white;border:none;padding:12px 24px;border-radius:8px;font-size:15px;font-weight:700;">Cerrar</button>`;
+  document.body.appendChild(el);
+}
+
 function _checkSquareCallback() {
-  // Revisar si Square redirigió aquí con ?sq_ok=ID o ?data=BASE64
   const params = new URLSearchParams(location.search);
   const sqOk   = params.get('sq_ok');
   const sqData = params.get('data');
 
+  // Guardar URL completa para debug
+  if (sqOk || sqData) save('cacusa_sq_debug_url', location.href);
+
   if (sqOk) {
-    // Callback directo con el ID que enviamos
     setTimeout(() => confirmarPagoSquare(decodeURIComponent(sqOk)), 800);
     history.replaceState({}, '', location.pathname);
     return;
   }
   if (sqData) {
-    // Callback estándar de Square con base64
+    // Decodificar respuesta de Square:
+    // Square puede mandar (a) JSON URL-encoded directamente, (b) base64 estándar, o (c) base64 URL-safe
+    let result = null;
+    let decodeErr = null;
     try {
-      const result = JSON.parse(atob(sqData));
-      if (result.status === 'ok' || result.status === 'OK') {
-        const pendingId = load('cacusa_square_pending','');
-        if (pendingId) setTimeout(() => confirmarPagoSquare(pendingId), 800);
+      const raw = decodeURIComponent(sqData);
+      // Intento 1: JSON directo (Square iOS v1.3 manda JSON URL-encoded en muchos casos)
+      try {
+        result = JSON.parse(raw);
+      } catch(_) {
+        // Intento 2: base64 (estándar y URL-safe con padding)
+        const b64 = raw.replace(/-/g,'+').replace(/_/g,'/') + '==='.slice(0,(4-raw.length%4)%4);
+        result = JSON.parse(atob(b64));
       }
-    } catch {}
+    } catch(e) {
+      decodeErr = e.message;
+    }
+
+    console.log('[Square callback] raw sqData:', sqData);
+    console.log('[Square callback] decoded result:', result, 'error:', decodeErr);
+
+    if (decodeErr || !result) {
+      _sqDebugAlert(`DECODE ERROR: ${decodeErr}\n\nRAW sqData:\n${sqData}`);
+      history.replaceState({}, '', location.pathname);
+      return;
+    }
+
+    const isOk      = ['ok','success'].includes(String(result.status).toLowerCase());
+    const pendingId = load('cacusa_square_pending','');
+
+    if (isOk && pendingId) {
+      setTimeout(() => confirmarPagoSquare(pendingId), 800);
+    } else {
+      const statusStr = String(result.status).toLowerCase();
+      // Cancelación: puede venir como status="cancel" O error_code="payment_canceled"
+      const isCancelled = statusStr === 'cancel' || result.error_code === 'payment_canceled';
+      if (isCancelled) {
+        showToast('Pago cancelado en Square — puedes intentarlo de nuevo', 'info');
+        if (pendingId) setTimeout(() => _mostrarPendingSquare(pendingId), 400);
+      } else {
+        // Error técnico real — mostrar overlay completo para diagnóstico
+        const debugMsg = `STATUS: ${result.status}\nERROR_CODE: ${result.error_code || 'none'}\n\nFULL RESPONSE:\n${JSON.stringify(result, null, 2)}`;
+        setTimeout(() => _sqDebugAlert(debugMsg), 300);
+        if (pendingId) setTimeout(() => _mostrarPendingSquare(pendingId), 600);
+      }
+    }
     history.replaceState({}, '', location.pathname);
     return;
   }
-  // Revisar si hay un pago pendiente de Square sin confirmar
+  // Square no llamó el callback — revisar si hay pago pendiente
   const pendingId = load('cacusa_square_pending','');
-  if (pendingId && sales.find(s => s.id === pendingId && s.status === 'Pendiente')) {
-    _mostrarPendingSquare(pendingId);
+  if (pendingId) {
+    const pendingSale = sales.find(s => s.id === pendingId);
+    if (!pendingSale || pendingSale.status === 'Pagado') {
+      save('cacusa_square_pending', '');
+    } else if (pendingSale.status === 'Pendiente') {
+      const sqSentAt = load('cacusa_sq_sent_at', 0);
+      const elapsed  = Date.now() - sqSentAt;
+
+      if (sqSentAt && elapsed < 120000) {
+        // Menos de 2 min: Square abrió pero no llamó el callback — mostrar debug + banner
+        setTimeout(() => {
+          const lastUrl = load('cacusa_sq_debug_url','');
+          _sqDebugAlert(
+            `Square regresó SIN llamar el callback.\n` +
+            `Esto significa que Square ignoró el pago (pantalla principal mostrada).\n\n` +
+            `Posibles causas:\n` +
+            `- Cuenta Square no activa para pagos\n` +
+            `- App Square desactualizada\n` +
+            `- App ID incorrecto\n\n` +
+            `App ID usado: ${load('cacusa_square_id','(no configurado)')}\n` +
+            `Último callback URL: ${lastUrl || 'ninguno'}`
+          );
+        }, 500);
+        _mostrarPendingSquare(pendingId);
+
+      } else if (sqSentAt && elapsed < 300000) {
+        // Entre 2–5 min: sólo mostrar banner (pago podría estar en proceso)
+        _mostrarPendingSquare(pendingId);
+
+      } else {
+        // Más de 5 min, o nunca se envió: limpiar el flag.
+        // La venta queda como Pendiente en el historial para confirmación manual.
+        save('cacusa_square_pending', '');
+        save('cacusa_sq_sent_at', '');
+        // No mostrar banner — no interrumpir un nuevo cobro con una orden vieja
+      }
+    }
   }
 }
 
@@ -1838,16 +2157,27 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   // ── Square: verificar callback o pago pendiente ──
   _checkSquareCallback();
 
-  // ── Square App ID en configuración ──
+  // ── Square: cargar valores guardados en Ajustes ──
   const sqId = getSquareId();
   const sqInput = document.getElementById('square-app-id');
   const sqStatus = document.getElementById('square-status');
   if (sqInput && sqId) {
     sqInput.value = sqId;
-    if (sqStatus) { sqStatus.textContent = '✅ Square configurado'; sqStatus.style.color = 'var(--green)'; }
+    if (sqStatus) { sqStatus.textContent = '✅ Square POS configurado'; sqStatus.style.color = 'var(--green)'; }
   } else if (sqStatus) {
     sqStatus.textContent = '⚠️ Sin configurar — las ventas con Tarjeta se guardan normalmente';
     sqStatus.style.color = 'var(--text3)';
+  }
+  // Token y Location para links de pago
+  const sqToken = getSquareToken();
+  const sqTokenInput = document.getElementById('square-api-token');
+  if (sqTokenInput && sqToken) sqTokenInput.value = sqToken;
+  const sqLocation = getSquareLocation();
+  const sqLocationInput = document.getElementById('square-location-id');
+  if (sqLocationInput && sqLocation) {
+    sqLocationInput.value = sqLocation;
+    const locStatus = document.getElementById('square-location-status');
+    if (locStatus) { locStatus.textContent = `✅ Location: ${sqLocation}`; locStatus.style.color = 'var(--green)'; }
   }
 
   setTimeout(()=>{
@@ -1856,11 +2186,11 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   },1400);
   renderPOS();
   renderCart();
-  // Restaurar IP guardada
+  // Restaurar URL servidor guardada
   const ip = getPCUrl();
   if (ip) {
     const el = document.getElementById('pc-ip-input');
-    if (el) el.value = ip.replace('http://','');
+    if (el) el.value = ip;  // mostrar URL completa (ngrok o IP local)
   }
   // Mostrar última sync
   const ls = load('last-sync','');
