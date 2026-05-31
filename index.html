@@ -1026,6 +1026,7 @@ function _mergeFirebaseData(data) {
 }
 
 function _iniciarFirebase() {
+  // ── Ventas ──
   try {
     const es = new EventSource(`${_FB_URL}.json`);
     es.addEventListener('put', e => {
@@ -1050,6 +1051,17 @@ function _iniciarFirebase() {
       } catch(_) {}
     });
   } catch(_) {}
+  // ── Costos ──
+  try {
+    const esCostos = new EventSource(`${_FB_COSTOS_URL}.json`);
+    esCostos.addEventListener('put', e => {
+      try {
+        const { path, data } = JSON.parse(e.data);
+        if (path === '/') { if (data) _mergeFirebaseCostos(data); }
+        else if (data)    { _mergeFirebaseCostos({ [path.slice(1)]: data }); }
+      } catch(_) {}
+    });
+  } catch(_) {}
 }
 
 // ─── Migración única: localStorage → Firebase ───────────────────────────────
@@ -1064,6 +1076,83 @@ function _migrarVentasAFirebase() {
   }
   save(FLAG, true);
   if (count > 0) console.log(`[Firebase] Migración inicial: ${count} venta${count>1?'s':''} subidas`);
+}
+
+// ════════════════════════════════════════════════════════
+//  FIREBASE — COSTOS (sync entre dispositivos)
+// ════════════════════════════════════════════════════════
+const _FB_COSTOS_URL = 'https://cacusa-pos-default-rtdb.firebaseio.com/cacusa_costos';
+
+function fbGuardarCosto(c) {
+  if (!c || !c.created) return;
+  fetch(`${_FB_COSTOS_URL}/${c.created}.json`, {
+    method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(c)
+  }).catch(()=>{});
+}
+
+function fbEliminarCosto(created) {
+  if (!created) return;
+  fetch(`${_FB_COSTOS_URL}/${created}.json`, {
+    method: 'DELETE'
+  }).catch(()=>{});
+}
+
+function _mergeFirebaseCostos(data) {
+  if (!data) return;
+  const remoteCosts = Object.values(data).filter(c => c && c.created);
+  const localMap = new Map(costs.map(c => [String(c.created), c]));
+  let changed = false;
+  for (const rc of remoteCosts) {
+    if (!localMap.has(String(rc.created))) {
+      costs.push(rc); changed = true;
+    }
+  }
+  if (changed) {
+    costs.sort((a, b) => (b.created || 0) - (a.created || 0));
+    save('cacusa_costs', costs);
+    renderCosts();
+  }
+}
+
+function _migrarCostosAFirebase() {
+  const FLAG = 'cacusa_fb_costos_migrado_v1';
+  if (load(FLAG, false)) return;
+  let count = 0;
+  for (const c of costs) {
+    if (c && c.created) { fbGuardarCosto(c); count++; }
+  }
+  save(FLAG, true);
+  if (count > 0) console.log(`[Firebase] Costos migrados: ${count}`);
+}
+
+// ─── Pull-sync costos desde servidor (Excel → app) ───────────────────────────
+async function sincronizarCostos(silencioso = true) {
+  const url = getPCUrl();
+  if (!url) return;
+  try {
+    const resp = await fetch(url + '/costos', {
+      signal: AbortSignal.timeout(8000),
+      headers: { 'ngrok-skip-browser-warning': '1' }
+    });
+    if (!resp.ok) return;
+    const data = await resp.json();
+    if (!data.ok || !Array.isArray(data.costos)) return;
+    const localMap = new Map(costs.map(c => [String(c.created), c]));
+    let added = 0;
+    for (const sc of data.costos) {
+      if (!sc.created) continue;
+      if (!localMap.has(String(sc.created))) {
+        costs.push(sc); localMap.set(String(sc.created), sc); added++;
+        fbGuardarCosto(sc); // propagar al otro dispositivo
+      }
+    }
+    if (added > 0) {
+      costs.sort((a, b) => (b.created || 0) - (a.created || 0));
+      save('cacusa_costs', costs);
+      renderCosts();
+      if (!silencioso) showToast(`↓${added} costo${added>1?'s':''} sincronizado${added>1?'s':''}`, 'success');
+    }
+  } catch(_) {}
 }
 
 async function sincronizarDesdeServidor(silencioso = false) {
@@ -1220,7 +1309,7 @@ function switchScreen(id, btn) {
   btn.classList.add('active');
   if (id==='hist') { renderHist(); sincronizarDesdeServidor(); }
   if (id==='prods') renderProds();
-  if (id==='costs') renderCosts();
+  if (id==='costs') { renderCosts(); sincronizarCostos(); }
   if (id==='config') {
     const ls = load('last-sync','—');
     const el = document.getElementById('last-sync-text');
@@ -1811,6 +1900,7 @@ async function saveCost() {
   if(!desc||isNaN(amount)){showToast('Completa los campos requeridos','error');return;}
   const cost={type,desc,amount,provider:prov,date:today(),created:Date.now()};
   costs.unshift(cost);save('cacusa_costs',costs);
+  fbGuardarCosto(cost);
   document.getElementById('cost-desc-input').value='';
   document.getElementById('cost-amount-input').value='';
   document.getElementById('cost-prov-input').value='';
@@ -1820,7 +1910,10 @@ async function saveCost() {
 
 function deleteCost(idx) {
   if(!confirm('¿Eliminar?')) return;
-  costs.splice(idx,1);save('cacusa_costs',costs);renderCosts();showToast('Eliminado','error');
+  const c = costs[idx];
+  costs.splice(idx,1);save('cacusa_costs',costs);
+  if (c && c.created) fbEliminarCosto(c.created);
+  renderCosts();showToast('Eliminado','error');
 }
 
 function clearAllData() {
@@ -2478,8 +2571,9 @@ window.addEventListener('DOMContentLoaded', async ()=>{
 
   // ── Firebase: iniciar sync en tiempo real entre dispositivos ──
   _iniciarFirebase();
-  // ── Migración única: subir ventas locales previas a Firebase ──
+  // ── Migración única: subir ventas y costos locales previos a Firebase ──
   setTimeout(_migrarVentasAFirebase, 1500);
+  setTimeout(_migrarCostosAFirebase, 2000);
   // ── Pull-sync: descargar ventas del servidor para esta sesión ──
   // Silencioso al arrancar (no muestra toast si no hay cambios)
   setTimeout(() => sincronizarDesdeServidor(true), 2000);
