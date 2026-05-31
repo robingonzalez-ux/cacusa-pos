@@ -977,65 +977,22 @@ async function sincronizarDesdeServidor(silencioso = false) {
   _syncInProgress = true;
 
   try {
-    const resp = await fetch(url + '/ventas', {
+    // ══ FASE 1: Subir primero — local → servidor ══
+    // Consultamos qué IDs ya tiene el servidor para no re-subir duplicados
+    const respCheck = await fetch(url + '/ventas', {
       signal: AbortSignal.timeout(8000),
       headers: { 'ngrok-skip-browser-warning': '1' }
     });
-    if (!resp.ok) return;
-    const data = await resp.json();
-    if (!data.ok || !Array.isArray(data.ventas)) return;
+    if (!respCheck.ok) return;
+    const dataCheck = await respCheck.json();
+    if (!dataCheck.ok || !Array.isArray(dataCheck.ventas)) return;
 
-    const serverVentas = data.ventas;
-    const serverIds    = new Set(serverVentas.map(sv => sv.id));
-
-    // Clonar array local para no mutar durante iteración
-    let localSales = JSON.parse(JSON.stringify(sales));
-    const localMap = new Map(localSales.map(s => [s.id, s]));
-    const toRemove = new Set();   // IDs marcados como Eliminado en servidor
-
-    let added = 0, updated = 0;
-
-    // ── ↓ Descarga: servidor → local ──
-    for (const sv of serverVentas) {
-      if (!sv.id) continue;
-      // Si el servidor marcó esta venta como Eliminada → quitarla localmente
-      if (sv.status === 'Eliminado') {
-        if (localMap.has(sv.id)) toRemove.add(sv.id);
-        continue;
-      }
-      if (!localMap.has(sv.id)) {
-        // Venta nueva (de otro usuario o creada en Excel)
-        localSales.push(sv);
-        localMap.set(sv.id, sv);
-        added++;
-      } else {
-        // Ya existe localmente — actualizar status si cambió en Excel
-        const local = localMap.get(sv.id);
-        if (sv.status && local.status !== sv.status) {
-          local.status = sv.status;
-          updated++;
-        }
-      }
-    }
-
-    // Aplicar eliminaciones sincronizadas desde servidor
-    const removed = toRemove.size;
-    if (removed > 0) localSales = localSales.filter(s => !toRemove.has(s.id));
-
-    if (added > 0 || updated > 0 || removed > 0) {
-      localSales.sort((a, b) => (b.id || '').localeCompare(a.id || ''));
-      sales = localSales;
-      save('cacusa_sales', sales);
-      renderHist();
-    }
-
-    // ── ↑ Sube: local → servidor (ventas que el servidor no tiene aún) ──
-    // Esto sincroniza ventas creadas offline o en otro dispositivo antes del WiFi
-    const toUpload = localSales.filter(s => !serverIds.has(s.id) && s.status !== 'Eliminado');
+    const serverIds = new Set(dataCheck.ventas.map(sv => sv.id));
+    const toUpload  = sales.filter(s => !serverIds.has(s.id) && s.status !== 'Eliminado');
     let uploaded = 0;
     for (const s of toUpload) {
       try {
-        const r = await fetch(url + '/venta', {
+        const r  = await fetch(url + '/venta', {
           method:  'POST',
           headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': '1' },
           body:    JSON.stringify(s),
@@ -1046,15 +1003,55 @@ async function sincronizarDesdeServidor(silencioso = false) {
       } catch(_) {}
     }
 
+    // ══ FASE 2: Descargar todo — servidor → local ══
+    // Ahora el servidor ya tiene lo de TODOS los usuarios (incluyendo lo que acabamos de subir)
+    const resp = await fetch(url + '/ventas', {
+      signal: AbortSignal.timeout(8000),
+      headers: { 'ngrok-skip-browser-warning': '1' }
+    });
+    if (!resp.ok) return;
+    const data = await resp.json();
+    if (!data.ok || !Array.isArray(data.ventas)) return;
+
+    const serverVentas = data.ventas;
+    let localSales = JSON.parse(JSON.stringify(sales));
+    const localMap = new Map(localSales.map(s => [s.id, s]));
+    const toRemove = new Set();
+
+    let added = 0, updated = 0;
+    for (const sv of serverVentas) {
+      if (!sv.id) continue;
+      if (sv.status === 'Eliminado') {
+        if (localMap.has(sv.id)) toRemove.add(sv.id);
+        continue;
+      }
+      if (!localMap.has(sv.id)) {
+        localSales.push(sv); localMap.set(sv.id, sv); added++;
+      } else {
+        const local = localMap.get(sv.id);
+        if (sv.status && local.status !== sv.status) { local.status = sv.status; updated++; }
+      }
+    }
+
+    const removed = toRemove.size;
+    if (removed > 0) localSales = localSales.filter(s => !toRemove.has(s.id));
+
+    if (added > 0 || updated > 0 || removed > 0 || uploaded > 0) {
+      localSales.sort((a, b) => (b.id || '').localeCompare(a.id || ''));
+      sales = localSales;
+      save('cacusa_sales', sales);
+      renderHist();
+    }
+
     // ── Toast resumen ──
     const parts = [];
+    if (uploaded > 0) parts.push(`↑${uploaded} subida${uploaded>1?'s':''}`);
     if (added    > 0) parts.push(`↓${added} nueva${added>1?'s':''}`);
     if (updated  > 0) parts.push(`${updated} actualizada${updated>1?'s':''}`);
     if (removed  > 0) parts.push(`${removed} eliminada${removed>1?'s':''}`);
-    if (uploaded > 0) parts.push(`↑${uploaded} subida${uploaded>1?'s':''}`);
 
     if (!silencioso) {
-      showToast(parts.length > 0 ? `Sync: ${parts.join(' · ')}` : '✓ Todo sincronizado', 'success');
+      showToast(parts.length > 0 ? `Sync: ${parts.join(' · ')}` : '✓ Todo al día', 'success');
     } else if (parts.length > 0) {
       showToast(`Sync: ${parts.join(' · ')}`, 'success');
     }
