@@ -1877,6 +1877,7 @@ async function cobrarConSquare() {
   sales.unshift(sale);
   save('cacusa_sales', sales);
   save('cacusa_square_pending', saleId);
+  fbGuardar(sale);
 
   // Limpiar carrito
   cart = []; dijeQty = 0;
@@ -1968,6 +1969,7 @@ async function generarLinkSquare() {
   };
   sales.unshift(sale);
   save('cacusa_sales', sales);
+  fbGuardar(sale);
 
   // Limpiar carrito y cerrar checkout
   cart = []; dijeQty = 0;
@@ -2140,6 +2142,7 @@ function confirmarPagoSquare(saleId) {
     sale.squarePending = false;
     save('cacusa_sales', sales);
     showToast(`${id} marcado como Pagado ✓`, 'success');
+    fbActualizar(id, {status:'Pagado', squarePending:false});
     syncVentaWifi(sale);
   }
   save('cacusa_square_pending', '');
