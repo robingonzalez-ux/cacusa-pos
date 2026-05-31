@@ -1326,10 +1326,12 @@ function filterHist(el) {
 }
 
 function renderHist() {
-  document.getElementById('stat-total').textContent=fmt(sales.reduce((s,x)=>s+x.total,0));
-  document.getElementById('stat-docs').textContent=sales.length;
-  document.getElementById('stat-pend').textContent=sales.filter(x=>x.status==='Pendiente').length;
-  document.getElementById('stat-paid').textContent=sales.filter(x=>x.status==='Pagado').length;
+  // Solo las Facturas (FAC) cuentan en los totales — las Órdenes de Compra no son ventas
+  const facs=sales.filter(x=>x.type==='FAC');
+  document.getElementById('stat-total').textContent=fmt(facs.reduce((s,x)=>s+x.total,0));
+  document.getElementById('stat-docs').textContent=facs.length;
+  document.getElementById('stat-pend').textContent=facs.filter(x=>x.status==='Pendiente').length;
+  document.getElementById('stat-paid').textContent=facs.filter(x=>x.status==='Pagado').length;
   document.getElementById('hist-total-badge').textContent=sales.length+' docs';
   const filtered=histFilter==='Todos'?sales:sales.filter(s=>s.type===histFilter);
   const list=document.getElementById('hist-list');
