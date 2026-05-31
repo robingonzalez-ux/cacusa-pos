@@ -368,9 +368,6 @@
     #sync-banner { display: none; background: rgba(76,175,125,0.12); border-bottom: 1px solid rgba(76,175,125,0.3); padding: 8px 16px; font-size: 12px; color: var(--green); font-weight: 600; text-align: center; }
     #sync-banner.show { display: block; }
   </style>
-  <!-- Firebase SDK — sincronización en tiempo real entre dispositivos -->
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 </head>
 <body>
 
@@ -641,15 +638,6 @@
             <div class="step-row"><div class="step-num">3</div><div class="step-text">Pégala en el campo <strong>"URL del servidor ngrok"</strong> de arriba y toca <strong>Probar</strong></div></div>
             <div class="step-row"><div class="step-num">4</div><div class="step-text">¡Listo! Cada venta se guarda <strong>automáticamente en tu Excel</strong> mientras la PC esté encendida con el servidor</div></div>
           </div>
-        </div>
-
-        <!-- Firebase sync -->
-        <div class="settings-card">
-          <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:10px;">🔥 Firebase — Sync automático entre usuarios</div>
-          <div style="font-size:12px;color:var(--text2);margin-bottom:10px;">Pega aquí el bloque <code>firebaseConfig</code> de tu proyecto Firebase para que todas las cuentas vean las mismas ventas en tiempo real.</div>
-          <textarea id="fb-config-input" rows="5" style="width:100%;box-sizing:border-box;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:10px;padding:10px;font-size:11px;font-family:monospace;resize:vertical;" placeholder='{ "apiKey": "...", "authDomain": "...", "databaseURL": "...", "projectId": "...", "storageBucket": "...", "messagingSenderId": "...", "appId": "..." }'></textarea>
-          <button class="btn btn-gold btn-full" style="margin-top:8px;" onclick="guardarConfigFirebase()">Guardar y activar Firebase</button>
-          <div id="fb-config-result" style="font-size:12px;margin-top:6px;"></div>
         </div>
 
         <!-- App info -->
@@ -985,75 +973,83 @@ let _syncInProgress = false;
 
 // ════════════════════════════════════════════════════════
 //  FIREBASE — Sincronización en tiempo real entre dispositivos
-//  Todos los teléfonos ven los mismos datos sin necesitar la PC
+//  REST API directa — sin SDK, sin configuración manual
 // ════════════════════════════════════════════════════════
-let _fbRef = null;
-let _fbOk  = false;
+const _FB_URL = 'https://cacusa-pos-default-rtdb.firebaseio.com/cacusa_ventas';
+
+function _fbKey(id) { return (id||'').replace(/[.#$[\]\/]/g, '_'); }
+
+function fbGuardar(s) {
+  fetch(`${_FB_URL}/${_fbKey(s.id)}.json`, {
+    method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(s)
+  }).catch(()=>{});
+}
+function fbActualizar(id, u) {
+  fetch(`${_FB_URL}/${_fbKey(id)}.json`, {
+    method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify(u)
+  }).catch(()=>{});
+}
+function fbEliminar(id) {
+  fetch(`${_FB_URL}/${_fbKey(id)}.json`, {
+    method: 'PATCH', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({id, status:'Eliminado'})
+  }).catch(()=>{});
+}
+
+function _mergeFirebaseData(data) {
+  if (!data) return;
+  const todos  = Object.values(data).filter(s => s && s.id);
+  const elim   = new Set(todos.filter(s => s.status === 'Eliminado').map(s => s.id));
+  const activo = todos.filter(s => s.status !== 'Eliminado');
+  const lMap   = new Map(sales.map(s => [s.id, s]));
+  let changed  = false;
+  for (const fs of activo) {
+    if (!lMap.has(fs.id)) {
+      sales.push(fs); changed = true;
+    } else {
+      const loc = lMap.get(fs.id);
+      if (loc.status !== fs.status || (fs.type && loc.type !== fs.type)) {
+        loc.status = fs.status;
+        if (fs.type) loc.type = fs.type;
+        changed = true;
+      }
+    }
+  }
+  const antes = sales.length;
+  sales = sales.filter(s => !elim.has(s.id));
+  if (sales.length !== antes) changed = true;
+  if (changed) {
+    sales.sort((a,b) => (b.id||'').localeCompare(a.id||''));
+    save('cacusa_sales', sales);
+    renderHist();
+  }
+}
 
 function _iniciarFirebase() {
   try {
-    if (typeof firebase === 'undefined') return;
-    const cfg = load('cacusa_fb_config', null);
-    if (!cfg || !cfg.apiKey || cfg.apiKey === 'PENDIENTE') return;
-    if (!firebase.apps.length) firebase.initializeApp(cfg);
-    const db = firebase.database();
-    _fbRef   = db.ref('cacusa_ventas');
-    _fbOk    = true;
-
-    // Escuchar cambios en tiempo real — cualquier cambio en otro dispositivo llega aquí
-    _fbRef.on('value', snap => {
-      const data = snap.val();
-      if (!data) return;
-      const todos  = Object.values(data).filter(s => s && s.id);
-      const elim   = new Set(todos.filter(s => s.status === 'Eliminado').map(s => s.id));
-      const activo = todos.filter(s => s.status !== 'Eliminado');
-      const lMap   = new Map(sales.map(s => [s.id, s]));
-      let changed  = false;
-
-      for (const fs of activo) {
-        if (!lMap.has(fs.id)) {
-          sales.push(fs); changed = true;
-        } else {
-          const loc = lMap.get(fs.id);
-          if (loc.status !== fs.status || (fs.type && loc.type !== fs.type)) {
-            loc.status = fs.status;
-            if (fs.type) loc.type = fs.type;
-            changed = true;
-          }
-        }
-      }
-      const antes = sales.length;
-      sales = sales.filter(s => !elim.has(s.id));
-      if (sales.length !== antes) changed = true;
-
-      if (changed) {
-        sales.sort((a,b) => (b.id||'').localeCompare(a.id||''));
-        save('cacusa_sales', sales);
-        renderHist();
-      }
+    const es = new EventSource(`${_FB_URL}.json`);
+    es.addEventListener('put', e => {
+      try {
+        const { path, data } = JSON.parse(e.data);
+        if (path === '/') { if (data) _mergeFirebaseData(data); }
+        else if (data)    { _mergeFirebaseData({ [path.slice(1)]: data }); }
+      } catch(_) {}
     });
-  } catch(e) { _fbOk = false; }
-}
-
-function _fbKey(id) { return (id||'').replace(/[.#$[\]\/]/g, '_'); }
-function fbGuardar(s)        { if (_fbOk) _fbRef.child(_fbKey(s.id)).set(s).catch(()=>{}); }
-function fbActualizar(id, u) { if (_fbOk) _fbRef.child(_fbKey(id)).update(u).catch(()=>{}); }
-function fbEliminar(id)      { if (_fbOk) _fbRef.child(_fbKey(id)).update({id, status:'Eliminado'}).catch(()=>{}); }
-
-function guardarConfigFirebase() {
-  const raw = document.getElementById('fb-config-input')?.value?.trim();
-  if (!raw) return;
-  try {
-    const json = raw.replace(/^const\s+firebaseConfig\s*=\s*/, '').replace(/;?\s*$/, '');
-    const cfg  = JSON.parse(json);
-    save('cacusa_fb_config', cfg);
-    showToast('✅ Firebase configurado — recarga la app para activar', 'success');
-    document.getElementById('fb-config-result').textContent = '✅ Guardado. Recarga para activar.';
-    document.getElementById('fb-config-result').style.color = 'var(--green)';
-  } catch(e) {
-    document.getElementById('fb-config-result').textContent = '❌ Formato inválido — pega el bloque completo de Firebase';
-    document.getElementById('fb-config-result').style.color = 'var(--red)';
-  }
+    es.addEventListener('patch', e => {
+      try {
+        const { path, data } = JSON.parse(e.data);
+        if (!data) return;
+        if (path === '/') { _mergeFirebaseData(data); }
+        else {
+          const key = path.slice(1);
+          fetch(`${_FB_URL}/${key}.json`)
+            .then(r => r.json())
+            .then(item => { if (item && item.id) _mergeFirebaseData({ [key]: item }); })
+            .catch(()=>{});
+        }
+      } catch(_) {}
+    });
+  } catch(_) {}
 }
 
 async function sincronizarDesdeServidor(silencioso = false) {
