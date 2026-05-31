@@ -1052,6 +1052,20 @@ function _iniciarFirebase() {
   } catch(_) {}
 }
 
+// ─── Migración única: localStorage → Firebase ───────────────────────────────
+// Se ejecuta una sola vez por dispositivo (flag en localStorage).
+// Sube todas las ventas que ya existían en el dispositivo antes de Firebase.
+function _migrarVentasAFirebase() {
+  const FLAG = 'cacusa_fb_migrado_v1';
+  if (load(FLAG, false)) return;
+  let count = 0;
+  for (const s of sales) {
+    if (s && s.id && s.status !== 'Eliminado') { fbGuardar(s); count++; }
+  }
+  save(FLAG, true);
+  if (count > 0) console.log(`[Firebase] Migración inicial: ${count} venta${count>1?'s':''} subidas`);
+}
+
 async function sincronizarDesdeServidor(silencioso = false) {
   const url = getPCUrl();
   if (_syncInProgress) return;
@@ -1112,6 +1126,7 @@ async function sincronizarDesdeServidor(silencioso = false) {
       }
       if (!localMap.has(sv.id)) {
         localSales.push(sv); localMap.set(sv.id, sv); added++;
+        fbGuardar(sv); // propagar al resto de dispositivos vía Firebase
       } else {
         const local = localMap.get(sv.id);
         if (sv.status && local.status !== sv.status) { local.status = sv.status; updated++; }
@@ -2463,6 +2478,8 @@ window.addEventListener('DOMContentLoaded', async ()=>{
 
   // ── Firebase: iniciar sync en tiempo real entre dispositivos ──
   _iniciarFirebase();
+  // ── Migración única: subir ventas locales previas a Firebase ──
+  setTimeout(_migrarVentasAFirebase, 1500);
   // ── Pull-sync: descargar ventas del servidor para esta sesión ──
   // Silencioso al arrancar (no muestra toast si no hay cambios)
   setTimeout(() => sincronizarDesdeServidor(true), 2000);
