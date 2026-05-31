@@ -1398,6 +1398,8 @@ async function confirmSale() {
   // Sync: Firebase (tiempo real entre dispositivos) + servidor WiFi (Excel)
   fbGuardar(sale);
   syncVentaWifi(sale);
+  // PDF automático en PC (sin descargar al teléfono)
+  setTimeout(() => generarPDF(sale.id, true), 900);
 }
 
 // ════════════════════════════════════════════════════════
@@ -1532,6 +1534,7 @@ async function convertirOCaFAC(id) {
   renderHist(); closeModal('modal-saledetail');
   showToast(`✅ Convertido: ${newId}`, 'success');
   fbEliminar(oldId); fbGuardar(s);
+  setTimeout(() => generarPDF(newId, true), 900);
   const _u = getPCUrl();
   if (_u) {
     fetch(_u + '/convertir-venta', {
@@ -1543,10 +1546,10 @@ async function convertirOCaFAC(id) {
   }
 }
 
-function generarPDF(id) {
+function generarPDF(id, soloEnviar = false) {
   const s = sales.find(x => x.id === id);
   if (!s) return;
-  if (!window.jspdf) { showToast('Cargando PDF, reintenta en un momento','error'); return; }
+  if (!window.jspdf) { if (!soloEnviar) showToast('Cargando PDF, reintenta en un momento','error'); return; }
 
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
@@ -1688,9 +1691,11 @@ function generarPDF(id) {
   const slug   = s.client.trim().replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_]/g, '');
   const dSlug  = s.date.replace(/[\/\-]/g, '');
   const nombre = `${s.id}_${slug}_${dSlug}.pdf`;
-  doc.save(nombre);
 
-  // Enviar PDF al servidor PC para respaldo automático en la carpeta
+  // Descargar en el teléfono solo si el usuario tocó el botón
+  if (!soloEnviar) doc.save(nombre);
+
+  // Siempre enviar al servidor PC para guardar en carpeta (Facturas/ u Orden de Compra/)
   const _pcUrlPdf = getPCUrl();
   if (_pcUrlPdf) {
     try {
@@ -1700,11 +1705,11 @@ function generarPDF(id) {
         headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': '1' },
         body: JSON.stringify({ id: s.id, type: s.type, filename: nombre, data: _b64 }),
         signal: AbortSignal.timeout(15000)
-      }).catch(() => {});   // fallo silencioso — el PDF ya se descargó en el iPhone
+      }).catch(() => {});
     } catch(_e) {}
   }
 
-  showToast('PDF generado — guardalo en CACUSA VENTAS de OneDrive', 'success');
+  if (!soloEnviar) showToast('PDF generado — guardalo en CACUSA VENTAS de OneDrive', 'success');
 }
 
 // ════════════════════════════════════════════════════════
@@ -2009,7 +2014,8 @@ async function generarLinkSquare() {
     const url = result.payment_link?.url;
     if (url) {
       mostrarLinkSquare(url, saleId, total);
-      syncVentaWifi(sale);   // sincronizar con Excel si la PC está encendida
+      syncVentaWifi(sale);
+      setTimeout(() => generarPDF(saleId, true), 900);
     } else {
       showToast('Square no devolvió URL de pago', 'error');
     }
@@ -2144,6 +2150,7 @@ function confirmarPagoSquare(saleId) {
     showToast(`${id} marcado como Pagado ✓`, 'success');
     fbActualizar(id, {status:'Pagado', squarePending:false});
     syncVentaWifi(sale);
+    setTimeout(() => generarPDF(id, true), 900);
   }
   save('cacusa_square_pending', '');
   _ocultarBarSquare();
