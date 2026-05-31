@@ -973,7 +973,11 @@ let _syncInProgress = false;
 
 async function sincronizarDesdeServidor(silencioso = false) {
   const url = getPCUrl();
-  if (!url || _syncInProgress) return;
+  if (_syncInProgress) return;
+  if (!url) {
+    if (!silencioso) showToast('⚙ Configura la URL del servidor en Ajustes → WiFi', 'error');
+    return;
+  }
   _syncInProgress = true;
 
   try {
