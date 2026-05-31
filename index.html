@@ -1125,34 +1125,65 @@ function _migrarCostosAFirebase() {
   if (count > 0) console.log(`[Firebase] Costos migrados: ${count}`);
 }
 
-// ─── Pull-sync costos desde servidor (Excel → app) ───────────────────────────
+// ─── Sync costos: misma lógica que ventas (FASE 1 sube, FASE 2 baja) ─────────
+let _costSyncInProgress = false;
 async function sincronizarCostos(silencioso = true) {
   const url = getPCUrl();
-  if (!url) return;
+  if (!url || _costSyncInProgress) return;
+  _costSyncInProgress = true;
   try {
-    const resp = await fetch(url + '/costos', {
+    // ══ FASE 1: Subir costos locales que el servidor no tiene ══
+    const respCheck = await fetch(url + '/costos', {
       signal: AbortSignal.timeout(8000),
       headers: { 'ngrok-skip-browser-warning': '1' }
     });
-    if (!resp.ok) return;
-    const data = await resp.json();
-    if (!data.ok || !Array.isArray(data.costos)) return;
+    if (!respCheck.ok) return;
+    const dataCheck = await respCheck.json();
+    if (!dataCheck.ok || !Array.isArray(dataCheck.costos)) return;
+
+    const serverCreated = new Set(dataCheck.costos.filter(c => c.created).map(c => String(c.created)));
+    const toUpload = costs.filter(c => c.created && !serverCreated.has(String(c.created)));
+    for (const c of toUpload) {
+      try {
+        await fetch(url + '/costo', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': '1' },
+          body: JSON.stringify(c),
+          signal: AbortSignal.timeout(10000)
+        });
+      } catch(_) {}
+    }
+
+    // ══ FASE 2: Descargar costos del servidor que no tenemos ══
+    // Re-fetch para incluir los que acaba de subir FASE 1 + los del Excel
+    const resp2 = await fetch(url + '/costos', {
+      signal: AbortSignal.timeout(8000),
+      headers: { 'ngrok-skip-browser-warning': '1' }
+    });
+    if (!resp2.ok) return;
+    const data2 = await resp2.json();
+    if (!data2.ok || !Array.isArray(data2.costos)) return;
+
     const localMap = new Map(costs.map(c => [String(c.created), c]));
     let added = 0;
-    for (const sc of data.costos) {
+    for (const sc of data2.costos) {
       if (!sc.created) continue;
       if (!localMap.has(String(sc.created))) {
         costs.push(sc); localMap.set(String(sc.created), sc); added++;
-        fbGuardarCosto(sc); // propagar al otro dispositivo
+        fbGuardarCosto(sc); // propagar al otro dispositivo vía Firebase
       }
     }
-    if (added > 0) {
+    if (added > 0 || toUpload.length > 0) {
       costs.sort((a, b) => (b.created || 0) - (a.created || 0));
       save('cacusa_costs', costs);
       renderCosts();
-      if (!silencioso) showToast(`↓${added} costo${added>1?'s':''} sincronizado${added>1?'s':''}`, 'success');
     }
+    const parts = [];
+    if (toUpload.length > 0) parts.push(`↑${toUpload.length} subido${toUpload.length>1?'s':''}`);
+    if (added > 0)           parts.push(`↓${added} nuevo${added>1?'s':''}`);
+    if (!silencioso && parts.length > 0) showToast(`Costos: ${parts.join(' · ')}`, 'success');
   } catch(_) {}
+  finally { _costSyncInProgress = false; }
 }
 
 async function sincronizarDesdeServidor(silencioso = false) {
@@ -2574,9 +2605,9 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   // ── Migración única: subir ventas y costos locales previos a Firebase ──
   setTimeout(_migrarVentasAFirebase, 1500);
   setTimeout(_migrarCostosAFirebase, 2000);
-  // ── Pull-sync: descargar ventas del servidor para esta sesión ──
-  // Silencioso al arrancar (no muestra toast si no hay cambios)
+  // ── Pull-sync: descargar ventas y costos del servidor al arrancar ──
   setTimeout(() => sincronizarDesdeServidor(true), 2000);
+  setTimeout(() => sincronizarCostos(true), 3000);
 });
 </script>
 </body>
