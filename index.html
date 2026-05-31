@@ -986,6 +986,8 @@ async function sincronizarDesdeServidor(silencioso = false) {
     if (!data.ok || !Array.isArray(data.ventas)) return;
 
     const serverVentas = data.ventas;
+    const serverIds    = new Set(serverVentas.map(sv => sv.id));
+
     // Clonar array local para no mutar durante iteración
     let localSales = JSON.parse(JSON.stringify(sales));
     const localMap = new Map(localSales.map(s => [s.id, s]));
@@ -993,6 +995,7 @@ async function sincronizarDesdeServidor(silencioso = false) {
 
     let added = 0, updated = 0;
 
+    // ── ↓ Descarga: servidor → local ──
     for (const sv of serverVentas) {
       if (!sv.id) continue;
       // Si el servidor marcó esta venta como Eliminada → quitarla localmente
@@ -1020,18 +1023,40 @@ async function sincronizarDesdeServidor(silencioso = false) {
     if (removed > 0) localSales = localSales.filter(s => !toRemove.has(s.id));
 
     if (added > 0 || updated > 0 || removed > 0) {
-      // Re-ordenar por ID descendente
       localSales.sort((a, b) => (b.id || '').localeCompare(a.id || ''));
       sales = localSales;
       save('cacusa_sales', sales);
       renderHist();
-      if (!silencioso) {
-        const parts = [];
-        if (added   > 0) parts.push(`+${added} nueva${added>1?'s':''}`);
-        if (updated > 0) parts.push(`${updated} actualizada${updated>1?'s':''}`);
-        if (removed > 0) parts.push(`${removed} eliminada${removed>1?'s':''}`);
-        showToast(`↓ Sync: ${parts.join(', ')}`, 'success');
-      }
+    }
+
+    // ── ↑ Sube: local → servidor (ventas que el servidor no tiene aún) ──
+    // Esto sincroniza ventas creadas offline o en otro dispositivo antes del WiFi
+    const toUpload = localSales.filter(s => !serverIds.has(s.id) && s.status !== 'Eliminado');
+    let uploaded = 0;
+    for (const s of toUpload) {
+      try {
+        const r = await fetch(url + '/venta', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': '1' },
+          body:    JSON.stringify(s),
+          signal:  AbortSignal.timeout(10000)
+        });
+        const rj = await r.json();
+        if (rj.ok) uploaded++;
+      } catch(_) {}
+    }
+
+    // ── Toast resumen ──
+    const parts = [];
+    if (added    > 0) parts.push(`↓${added} nueva${added>1?'s':''}`);
+    if (updated  > 0) parts.push(`${updated} actualizada${updated>1?'s':''}`);
+    if (removed  > 0) parts.push(`${removed} eliminada${removed>1?'s':''}`);
+    if (uploaded > 0) parts.push(`↑${uploaded} subida${uploaded>1?'s':''}`);
+
+    if (!silencioso) {
+      showToast(parts.length > 0 ? `Sync: ${parts.join(' · ')}` : '✓ Todo sincronizado', 'success');
+    } else if (parts.length > 0) {
+      showToast(`Sync: ${parts.join(' · ')}`, 'success');
     }
 
     // Actualizar timestamp de última sync
