@@ -1105,11 +1105,12 @@ function _iniciarFirebase() {
 function _migrarVentasAFirebase() {
   const FLAG = 'cacusa_fb_migrado_v1';
   if (load(FLAG, false)) return;
+  if (!navigator.onLine) return; // W-1: reintentar cuando haya conexión
   let count = 0;
   for (const s of sales) {
     if (s && s.id && s.status !== 'Eliminado') { fbGuardar(s); count++; }
   }
-  save(FLAG, true);
+  if (count > 0 || sales.length === 0) save(FLAG, true); // solo marcar si hubo uploads exitosos o no había nada
   if (count > 0) console.log(`[Firebase] Migración inicial: ${count} venta${count>1?'s':''} subidas`);
 }
 
@@ -1127,19 +1128,40 @@ function fbGuardarCosto(c) {
 
 function fbEliminarCosto(created) {
   if (!created) return;
+  // Soft-delete: marca como deleted:true para que todos los dispositivos lo eliminen
   fetch(`${_FB_COSTOS_URL}/${created}.json`, {
-    method: 'DELETE'
+    method: 'PUT', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ created, deleted: true })
   }).catch(()=>{});
 }
 
 function _mergeFirebaseCostos(data) {
   if (!data) return;
   const remoteCosts = Object.values(data).filter(c => c && c.created);
+  // Eliminar los marcados como deleted
+  const deletedCreated = new Set(remoteCosts.filter(c => c.deleted).map(c => String(c.created)));
+  if (deletedCreated.size > 0) {
+    const antes = costs.length;
+    costs = costs.filter(c => !deletedCreated.has(String(c.created)));
+    if (costs.length !== antes) {
+      save('cacusa_costs', costs);
+      renderCosts();
+    }
+  }
   const localMap = new Map(costs.map(c => [String(c.created), c]));
   let changed = false;
   for (const rc of remoteCosts) {
+    if (rc.deleted) continue;
     if (!localMap.has(String(rc.created))) {
       costs.push(rc); changed = true;
+    } else {
+      // Actualizar si cambió el contenido (edición desde otro dispositivo)
+      const loc = localMap.get(String(rc.created));
+      if (loc.amount !== rc.amount || loc.desc !== rc.desc || loc.type !== rc.type) {
+        Object.assign(loc, { amount: rc.amount, desc: rc.desc, type: rc.type,
+                             provider: rc.provider, date: rc.date });
+        changed = true;
+      }
     }
   }
   if (changed) {
@@ -1152,11 +1174,12 @@ function _mergeFirebaseCostos(data) {
 function _migrarCostosAFirebase() {
   const FLAG = 'cacusa_fb_costos_migrado_v1';
   if (load(FLAG, false)) return;
+  if (!navigator.onLine) return;
   let count = 0;
   for (const c of costs) {
     if (c && c.created) { fbGuardarCosto(c); count++; }
   }
-  save(FLAG, true);
+  if (count > 0 || costs.length === 0) save(FLAG, true);
   if (count > 0) console.log(`[Firebase] Costos migrados: ${count}`);
 }
 
@@ -1217,10 +1240,12 @@ function _mergeFirebaseProductos(data) {
 function _migrarProductosAFirebase() {
   const FLAG = 'cacusa_fb_prods_migrado_v1';
   if (load(FLAG, false)) return;
+  if (!navigator.onLine) return;
+  let count = 0;
   for (const p of products) {
-    if (p && p.id && !p.deleted) fbGuardarProducto(p);
+    if (p && p.id && !p.deleted) { fbGuardarProducto(p); count++; }
   }
-  save(FLAG, true);
+  if (count > 0 || products.length === 0) save(FLAG, true);
 }
 
 // ─── Sync productos: FASE 1 sube locales, FASE 2 baja del servidor ────────────
@@ -1333,22 +1358,31 @@ async function sincronizarCostos(silencioso = true) {
     if (!data2.ok || !Array.isArray(data2.costos)) return;
 
     const localMap = new Map(costs.map(c => [String(c.created), c]));
-    let added = 0;
+    let added = 0, updated = 0;
     for (const sc of data2.costos) {
       if (!sc.created) continue;
       if (!localMap.has(String(sc.created))) {
         costs.push(sc); localMap.set(String(sc.created), sc); added++;
         fbGuardarCosto(sc); // propagar al otro dispositivo vía Firebase
+      } else {
+        // Actualizar si el Excel tiene valores distintos (edición directa en Excel)
+        const loc = localMap.get(String(sc.created));
+        if (loc.amount !== sc.amount || loc.desc !== sc.desc || loc.type !== sc.type) {
+          Object.assign(loc, { amount: sc.amount, desc: sc.desc, type: sc.type,
+                               provider: sc.provider, date: sc.date });
+          updated++; fbGuardarCosto(loc);
+        }
       }
     }
-    if (added > 0 || toUpload.length > 0) {
+    if (added > 0 || updated > 0 || toUpload.length > 0) {
       costs.sort((a, b) => (b.created || 0) - (a.created || 0));
       save('cacusa_costs', costs);
       renderCosts();
     }
     const parts = [];
     if (toUpload.length > 0) parts.push(`↑${toUpload.length} subido${toUpload.length>1?'s':''}`);
-    if (added > 0)           parts.push(`↓${added} nuevo${added>1?'s':''}`);
+    if (added > 0)    parts.push(`↓${added} nuevo${added>1?'s':''}`);
+    if (updated > 0)  parts.push(`${updated} actualizado${updated>1?'s':''}`);
     if (!silencioso && parts.length > 0) showToast(`Costos: ${parts.join(' · ')}`, 'success');
   } catch(_) {}
   finally { _costSyncInProgress = false; }
@@ -1702,7 +1736,7 @@ async function confirmSale() {
   fbGuardar(sale);
   syncVentaWifi(sale);
   // PDF automático en PC (sin descargar al teléfono)
-  setTimeout(() => generarPDF(sale.id, true), 900);
+  setTimeout(() => generarPDF(sale.id, true), 2500);
 }
 
 // ════════════════════════════════════════════════════════
@@ -1829,15 +1863,21 @@ function deleteSale(id) {
 async function convertirOCaFAC(id) {
   const s = sales.find(x => x.id === id);
   if (!s || s.type !== 'OC') return;
-  if (!confirm(`¿Convertir "${s.id}" en Factura?\nEl número cambiará de OC a FAC y se registrará como venta.`)) return;
   const oldId = s.id;
   const newId = oldId.replace(/^OC-/, 'FAC-');
+  // C-3: verificar que el FAC destino no existe ya (evita colisión)
+  if (sales.find(x => x.id === newId)) {
+    showToast(`Ya existe ${newId} — no se puede convertir`, 'error'); return;
+  }
+  if (!confirm(`¿Convertir "${oldId}" en Factura?\nEl número cambiará a ${newId}.`)) return;
+  // Guardar estado anterior para posible recuperación visual
+  const oldType = s.type;
   s.id = newId; s.type = 'FAC';
   save('cacusa_sales', sales);
   renderHist(); closeModal('modal-saledetail');
   showToast(`✅ Convertido: ${newId}`, 'success');
   fbEliminar(oldId); fbGuardar(s);
-  setTimeout(() => generarPDF(newId, true), 900);
+  setTimeout(() => generarPDF(newId, true), 2500);
   const _u = getPCUrl();
   if (_u) {
     fetch(_u + '/convertir-venta', {
@@ -1845,7 +1885,11 @@ async function convertirOCaFAC(id) {
       headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': '1' },
       body: JSON.stringify({ oldId, newId, sale: s }),
       signal: AbortSignal.timeout(12000)
-    }).catch(() => {});
+    }).then(r => r.json()).then(rj => {
+      if (!rj.ok) showToast('⚠ Excel no actualizado — se sincronizará en el próximo sync', 'error');
+    }).catch(() => {
+      showToast('⚠ Sin servidor — Excel se actualizará cuando esté disponible', 'error');
+    });
   }
 }
 
@@ -2084,6 +2128,8 @@ function deleteProduct() {
   products=products.filter(p=>p.id!==id);
   save('cacusa_products',products);
   fbEliminarProducto(id);
+  // Marcar inactive en Excel (W-6)
+  syncProductoWifi({ id, name:'', cat:'', price:0, active:false, deleted:true });
   closeModal('modal-addprod');renderProds();renderPOS();showToast('Producto eliminado','error');
 }
 
@@ -2130,9 +2176,25 @@ function deleteCost(idx) {
 }
 
 function clearAllData() {
-  if(!confirm('¿Borrar TODOS los datos locales? Esto no afecta tu Excel.')) return;
-  sales=[];costs=[];save('cacusa_sales',[]);save('cacusa_costs',[]);
-  renderHist();renderCosts();showToast('Datos borrados','error');
+  if(!confirm(
+    '⚠ BORRAR DATOS LOCALES\n\n' +
+    'Esto elimina ventas, costos y productos del dispositivo.\n' +
+    'Los datos se recuperarán automáticamente desde Firebase y el servidor.\n\n' +
+    '¿Continuar?'
+  )) return;
+  // Borrar solo la copia local — Firebase y Excel conservan todo
+  sales=[]; costs=[]; products=[];
+  save('cacusa_sales',[]); save('cacusa_costs',[]); save('cacusa_products',[]);
+  // Resetear flags de migración para que se re-suban al reconectar
+  save('cacusa_fb_migrado_v1', false);
+  save('cacusa_fb_costos_migrado_v1', false);
+  save('cacusa_fb_prods_migrado_v1', false);
+  renderHist(); renderCosts(); renderProds(); renderPOS();
+  showToast('Datos locales borrados — se recuperarán desde Firebase', 'error');
+  // Recargar desde Firebase inmediatamente
+  setTimeout(_migrarVentasAFirebase, 500);
+  setTimeout(_migrarCostosAFirebase, 1000);
+  setTimeout(_migrarProductosAFirebase, 1500);
 }
 
 function exportarVentas() {
@@ -2204,6 +2266,7 @@ async function cobrarConSquare() {
   save('cacusa_sales', sales);
   save('cacusa_square_pending', saleId);
   fbGuardar(sale);
+  syncVentaWifi(sale); // registrar en Excel inmediatamente (C-4 fix)
 
   // Limpiar carrito
   cart = []; dijeQty = 0;
@@ -2336,7 +2399,7 @@ async function generarLinkSquare() {
     if (url) {
       mostrarLinkSquare(url, saleId, total);
       syncVentaWifi(sale);
-      setTimeout(() => generarPDF(saleId, true), 900);
+      setTimeout(() => generarPDF(saleId, true), 2500);
     } else {
       showToast('Square no devolvió URL de pago', 'error');
     }
@@ -2470,8 +2533,20 @@ function confirmarPagoSquare(saleId) {
     save('cacusa_sales', sales);
     showToast(`${id} marcado como Pagado ✓`, 'success');
     fbActualizar(id, {status:'Pagado', squarePending:false});
-    syncVentaWifi(sale);
-    setTimeout(() => generarPDF(id, true), 900);
+    // Actualizar estado en Excel. Si la venta aún no está en Excel (servidor estaba offline),
+    // syncVentaWifi la escribe completa como fallback.
+    const _sqUrl = getPCUrl();
+    if (_sqUrl) {
+      fetch(_sqUrl + '/actualizar-venta', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': '1' },
+        body: JSON.stringify({ id, type: sale.type, status: 'Pagado' }),
+        signal: AbortSignal.timeout(8000)
+      }).then(r => r.json()).then(rj => {
+        if (!rj.ok || !rj.found) syncVentaWifi(sale); // no estaba en Excel → escribir completa
+      }).catch(() => syncVentaWifi(sale));
+    }
+    setTimeout(() => generarPDF(id, true), 2500);
   }
   save('cacusa_square_pending', '');
   _ocultarBarSquare();
