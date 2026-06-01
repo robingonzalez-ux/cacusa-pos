@@ -841,11 +841,9 @@ const DEFAULT_PRODUCTS = [
 function load(key, def) { try { const v=localStorage.getItem(key); return v?JSON.parse(v):def; } catch{return def;} }
 function save(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch{} }
 
-// Si el Watcher exportó una versión más nueva del catálogo, actualizar localStorage
+// Seed de productos solo en primera instalación (no sobreescribir si ya hay datos o Firebase los sincronizó)
 (function() {
-  const sv = localStorage.getItem('cacusa_products_ver') || '';
-  if (sv < PRODUCTS_VER) {
-    localStorage.setItem('cacusa_products_ver', PRODUCTS_VER);
+  if (!localStorage.getItem('cacusa_products')) {
     localStorage.setItem('cacusa_products', JSON.stringify(DEFAULT_PRODUCTS));
   }
 })();
@@ -1062,6 +1060,17 @@ function _iniciarFirebase() {
       } catch(_) {}
     });
   } catch(_) {}
+  // ── Productos ──
+  try {
+    const esProds = new EventSource(`${_FB_PRODS_URL}.json`);
+    esProds.addEventListener('put', e => {
+      try {
+        const { path, data } = JSON.parse(e.data);
+        if (path === '/') { if (data) _mergeFirebaseProductos(data); }
+        else if (data)    { _mergeFirebaseProductos({ [path.slice(1)]: data }); }
+      } catch(_) {}
+    });
+  } catch(_) {}
 }
 
 // ─── Migración única: localStorage → Firebase ───────────────────────────────
@@ -1123,6 +1132,139 @@ function _migrarCostosAFirebase() {
   }
   save(FLAG, true);
   if (count > 0) console.log(`[Firebase] Costos migrados: ${count}`);
+}
+
+// ════════════════════════════════════════════════════════
+//  FIREBASE — PRODUCTOS (sync catálogo entre dispositivos)
+// ════════════════════════════════════════════════════════
+const _FB_PRODS_URL = 'https://cacusa-pos-default-rtdb.firebaseio.com/cacusa_productos';
+
+function fbGuardarProducto(p) {
+  if (!p || !p.id) return;
+  fetch(`${_FB_PRODS_URL}/${p.id}.json`, {
+    method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(p)
+  }).catch(()=>{});
+}
+
+function fbEliminarProducto(id) {
+  if (!id) return;
+  // Marca como deleted en Firebase para que se propague a los otros dispositivos
+  fetch(`${_FB_PRODS_URL}/${id}.json`, {
+    method: 'PUT', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ id, deleted: true })
+  }).catch(()=>{});
+}
+
+function _mergeFirebaseProductos(data) {
+  if (!data) return;
+  const remoteProds = Object.values(data).filter(p => p && p.id);
+  const localMap    = new Map(products.map(p => [p.id, p]));
+  let changed = false;
+  // Eliminar los marcados como deleted
+  const deletedIds = new Set(remoteProds.filter(p => p.deleted).map(p => p.id));
+  if (deletedIds.size > 0) {
+    const antes = products.length;
+    products = products.filter(p => !deletedIds.has(p.id));
+    if (products.length !== antes) changed = true;
+  }
+  // Agregar / actualizar
+  for (const rp of remoteProds) {
+    if (rp.deleted) continue;
+    if (!localMap.has(rp.id)) {
+      products.push(rp); changed = true;
+    } else {
+      const loc = localMap.get(rp.id);
+      if (loc.name !== rp.name || loc.cat !== rp.cat ||
+          loc.price !== rp.price || loc.active !== rp.active) {
+        Object.assign(loc, { name: rp.name, cat: rp.cat, price: rp.price, active: rp.active });
+        changed = true;
+      }
+    }
+  }
+  if (changed) {
+    save('cacusa_products', products);
+    renderProds();
+    renderPOS();
+  }
+}
+
+function _migrarProductosAFirebase() {
+  const FLAG = 'cacusa_fb_prods_migrado_v1';
+  if (load(FLAG, false)) return;
+  for (const p of products) {
+    if (p && p.id && !p.deleted) fbGuardarProducto(p);
+  }
+  save(FLAG, true);
+}
+
+// ─── Sync productos: FASE 1 sube locales, FASE 2 baja del servidor ────────────
+let _prodSyncInProgress = false;
+async function sincronizarProductos(silencioso = true) {
+  const url = getPCUrl();
+  if (!url || _prodSyncInProgress) return;
+  _prodSyncInProgress = true;
+  try {
+    const respCheck = await fetch(url + '/productos', {
+      signal: AbortSignal.timeout(8000),
+      headers: { 'ngrok-skip-browser-warning': '1' }
+    });
+    if (!respCheck.ok) return;
+    const dataCheck = await respCheck.json();
+    if (!dataCheck.ok || !Array.isArray(dataCheck.productos)) return;
+
+    // ══ FASE 1: Subir productos locales que el servidor no tiene ══
+    const serverIds = new Set(dataCheck.productos.map(p => p.id));
+    const toUpload  = products.filter(p => p.id && !p.deleted && !serverIds.has(p.id));
+    for (const p of toUpload) {
+      try {
+        await fetch(url + '/producto', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': '1' },
+          body: JSON.stringify(p), signal: AbortSignal.timeout(10000)
+        });
+      } catch(_) {}
+    }
+
+    // ══ FASE 2: Descargar productos del servidor que no tenemos o que cambiaron ══
+    const localMap = new Map(products.map(p => [p.id, p]));
+    let added = 0, updated = 0;
+    for (const sp of dataCheck.productos) {
+      if (!sp.id) continue;
+      if (!localMap.has(sp.id)) {
+        products.push(sp); localMap.set(sp.id, sp); added++;
+        fbGuardarProducto(sp);
+      } else {
+        const loc = localMap.get(sp.id);
+        if (loc.name !== sp.name || loc.cat !== sp.cat ||
+            loc.price !== sp.price || loc.active !== sp.active) {
+          Object.assign(loc, { name: sp.name, cat: sp.cat, price: sp.price, active: sp.active });
+          updated++; fbGuardarProducto(loc);
+        }
+      }
+    }
+    if (added > 0 || updated > 0 || toUpload.length > 0) {
+      save('cacusa_products', products);
+      renderProds(); renderPOS();
+    }
+    const parts = [];
+    if (toUpload.length > 0) parts.push(`↑${toUpload.length} subido${toUpload.length>1?'s':''}`);
+    if (added > 0)    parts.push(`↓${added} nuevo${added>1?'s':''}`);
+    if (updated > 0)  parts.push(`${updated} actualizado${updated>1?'s':''}`);
+    if (!silencioso && parts.length > 0) showToast(`Productos: ${parts.join(' · ')}`, 'success');
+  } catch(_) {}
+  finally { _prodSyncInProgress = false; }
+}
+
+async function syncProductoWifi(prod) {
+  const url = getPCUrl();
+  if (!url) return;
+  try {
+    await fetch(url + '/producto', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': '1' },
+      body: JSON.stringify(prod), signal: AbortSignal.timeout(10000)
+    });
+  } catch(_) {}
 }
 
 // ─── Sync costos: misma lógica que ventas (FASE 1 sube, FASE 2 baja) ─────────
@@ -1339,7 +1481,7 @@ function switchScreen(id, btn) {
   document.getElementById('screen-'+id).classList.add('active');
   btn.classList.add('active');
   if (id==='hist') { renderHist(); sincronizarDesdeServidor(); }
-  if (id==='prods') renderProds();
+  if (id==='prods') { renderProds(); sincronizarProductos(); }
   if (id==='costs') { renderCosts(); sincronizarCostos(); }
   if (id==='config') {
     const ls = load('last-sync','—');
@@ -1894,15 +2036,29 @@ function saveProduct() {
   const active=document.getElementById('prod-active-input').checked;
   const editId=document.getElementById('edit-prod-id').value;
   if(!name||!cat||isNaN(price)){showToast('Completa todos los campos','error');return;}
-  if(editId){const p=products.find(x=>x.id===editId);if(p){p.name=name;p.cat=cat;p.price=price;p.active=active;}}
-  else{products.push({id:'P'+String(products.length+1).padStart(3,'0'),name,cat,price,active});}
-  save('cacusa_products',products);closeModal('modal-addprod');renderProds();renderPOS();showToast('Producto guardado ✓','success');
+  let prod;
+  if(editId){
+    prod=products.find(x=>x.id===editId);
+    if(prod){prod.name=name;prod.cat=cat;prod.price=price;prod.active=active;}
+  } else {
+    // Generar ID seguro basado en el máximo existente para evitar colisiones entre dispositivos
+    const nums=products.map(p=>parseInt((p.id||'').replace(/\D/g,''))||0);
+    const nextNum=Math.max(0,...nums)+1;
+    prod={id:'P'+String(nextNum).padStart(3,'0'),name,cat,price,active};
+    products.push(prod);
+  }
+  save('cacusa_products',products);
+  if(prod){ fbGuardarProducto(prod); syncProductoWifi(prod); }
+  closeModal('modal-addprod');renderProds();renderPOS();showToast('Producto guardado ✓','success');
 }
 
 function deleteProduct() {
   const id=document.getElementById('edit-prod-id').value;
   if(!id||!confirm('¿Eliminar?')) return;
-  products=products.filter(p=>p.id!==id);save('cacusa_products',products);closeModal('modal-addprod');renderProds();renderPOS();showToast('Producto eliminado','error');
+  products=products.filter(p=>p.id!==id);
+  save('cacusa_products',products);
+  fbEliminarProducto(id);
+  closeModal('modal-addprod');renderProds();renderPOS();showToast('Producto eliminado','error');
 }
 
 // ════════════════════════════════════════════════════════
@@ -2602,12 +2758,14 @@ window.addEventListener('DOMContentLoaded', async ()=>{
 
   // ── Firebase: iniciar sync en tiempo real entre dispositivos ──
   _iniciarFirebase();
-  // ── Migración única: subir ventas y costos locales previos a Firebase ──
+  // ── Migración única: subir datos locales previos a Firebase ──
   setTimeout(_migrarVentasAFirebase, 1500);
   setTimeout(_migrarCostosAFirebase, 2000);
-  // ── Pull-sync: descargar ventas y costos del servidor al arrancar ──
-  setTimeout(() => sincronizarDesdeServidor(true), 2000);
-  setTimeout(() => sincronizarCostos(true), 3000);
+  setTimeout(_migrarProductosAFirebase, 2500);
+  // ── Pull-sync desde servidor al arrancar ──
+  setTimeout(() => sincronizarDesdeServidor(true), 3000);
+  setTimeout(() => sincronizarCostos(true), 4000);
+  setTimeout(() => sincronizarProductos(true), 4500);
 });
 </script>
 </body>
