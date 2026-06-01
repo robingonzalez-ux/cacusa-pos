@@ -1059,6 +1059,19 @@ function _iniciarFirebase() {
         else if (data)    { _mergeFirebaseCostos({ [path.slice(1)]: data }); }
       } catch(_) {}
     });
+    esCostos.addEventListener('patch', e => {
+      try {
+        const { path, data } = JSON.parse(e.data);
+        if (!data) return;
+        if (path === '/') { _mergeFirebaseCostos(data); }
+        else {
+          const key = path.slice(1);
+          fetch(`${_FB_COSTOS_URL}/${key}.json`)
+            .then(r => r.json()).then(item => { if (item && item.created) _mergeFirebaseCostos({ [key]: item }); })
+            .catch(()=>{});
+        }
+      } catch(_) {}
+    });
   } catch(_) {}
   // ── Productos ──
   try {
@@ -1068,6 +1081,19 @@ function _iniciarFirebase() {
         const { path, data } = JSON.parse(e.data);
         if (path === '/') { if (data) _mergeFirebaseProductos(data); }
         else if (data)    { _mergeFirebaseProductos({ [path.slice(1)]: data }); }
+      } catch(_) {}
+    });
+    esProds.addEventListener('patch', e => {
+      try {
+        const { path, data } = JSON.parse(e.data);
+        if (!data) return;
+        if (path === '/') { _mergeFirebaseProductos(data); }
+        else {
+          const key = path.slice(1);
+          fetch(`${_FB_PRODS_URL}/${key}.json`)
+            .then(r => r.json()).then(item => { if (item && item.id) _mergeFirebaseProductos({ [key]: item }); })
+            .catch(()=>{});
+        }
       } catch(_) {}
     });
   } catch(_) {}
@@ -2766,6 +2792,14 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   setTimeout(() => sincronizarDesdeServidor(true), 3000);
   setTimeout(() => sincronizarCostos(true), 4000);
   setTimeout(() => sincronizarProductos(true), 4500);
+  // ── Sync periódico: cada 60s cuando el servidor bat está activo ──
+  // Sube datos pendientes y baja cambios del Excel automáticamente
+  setInterval(() => {
+    if (!getPCUrl()) return;
+    sincronizarDesdeServidor(true);
+    sincronizarCostos(true);
+    sincronizarProductos(true);
+  }, 60000);
 });
 </script>
 </body>
