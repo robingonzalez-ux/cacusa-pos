@@ -977,21 +977,39 @@ const _FB_URL = 'https://cacusa-pos-default-rtdb.firebaseio.com/cacusa_ventas';
 
 function _fbKey(id) { return (id||'').replace(/[.#$[\]\/]/g, '_'); }
 
+// ════════════════════════════════════════════════════════
+//  OUTBOX — entrega garantizada a Firebase
+//  Si la red falla al guardar, el registro queda en una cola
+//  y se reintenta automáticamente (al volver internet o cada 20s).
+//  Esto evita que una venta/costo/producto quede solo en un teléfono.
+// ════════════════════════════════════════════════════════
+const OB_V='cacusa_ob_ventas', OB_C='cacusa_ob_costos', OB_P='cacusa_ob_prods';
+const TB_V='cacusa_tomb_ventas', TB_C='cacusa_tomb_costos', TB_P='cacusa_tomb_prods';
+function _obGet(k){ try { return new Set((load(k,[])||[]).map(String)); } catch { return new Set(); } }
+function _obAdd(k,id){ if(id==null) return; const s=_obGet(k); if(!s.has(String(id))){ s.add(String(id)); save(k,[...s]); } }
+function _obDel(k,id){ const s=_obGet(k); if(s.delete(String(id))) save(k,[...s]); }
+
 function fbGuardar(s) {
+  if(!s || !s.id) return;
+  _obAdd(OB_V, s.id);
   fetch(`${_FB_URL}/${_fbKey(s.id)}.json`, {
     method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(s)
-  }).catch(()=>{});
+  }).then(r=>{ if(r.ok) _obDel(OB_V, s.id); }).catch(()=>{});
 }
 function fbActualizar(id, u) {
+  if(!id) return;
+  _obAdd(OB_V, id);
   fetch(`${_FB_URL}/${_fbKey(id)}.json`, {
     method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify(u)
-  }).catch(()=>{});
+  }).then(r=>{ if(r.ok) _obDel(OB_V, id); }).catch(()=>{});
 }
 function fbEliminar(id) {
+  if(!id) return;
+  _obAdd(TB_V, id);
   fetch(`${_FB_URL}/${_fbKey(id)}.json`, {
     method: 'PATCH', headers: {'Content-Type':'application/json'},
     body: JSON.stringify({id, status:'Eliminado'})
-  }).catch(()=>{});
+  }).then(r=>{ if(r.ok) _obDel(TB_V, id); }).catch(()=>{});
 }
 
 function _mergeFirebaseData(data) {
@@ -1121,18 +1139,20 @@ const _FB_COSTOS_URL = 'https://cacusa-pos-default-rtdb.firebaseio.com/cacusa_co
 
 function fbGuardarCosto(c) {
   if (!c || !c.created) return;
+  _obAdd(OB_C, c.created);
   fetch(`${_FB_COSTOS_URL}/${c.created}.json`, {
     method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(c)
-  }).catch(()=>{});
+  }).then(r=>{ if(r.ok) _obDel(OB_C, c.created); }).catch(()=>{});
 }
 
 function fbEliminarCosto(created) {
   if (!created) return;
   // Soft-delete: marca como deleted:true para que todos los dispositivos lo eliminen
+  _obAdd(TB_C, created);
   fetch(`${_FB_COSTOS_URL}/${created}.json`, {
     method: 'PUT', headers: {'Content-Type':'application/json'},
     body: JSON.stringify({ created, deleted: true })
-  }).catch(()=>{});
+  }).then(r=>{ if(r.ok) _obDel(TB_C, created); }).catch(()=>{});
 }
 
 function _mergeFirebaseCostos(data) {
@@ -1190,18 +1210,20 @@ const _FB_PRODS_URL = 'https://cacusa-pos-default-rtdb.firebaseio.com/cacusa_pro
 
 function fbGuardarProducto(p) {
   if (!p || !p.id) return;
+  _obAdd(OB_P, p.id);
   fetch(`${_FB_PRODS_URL}/${p.id}.json`, {
     method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(p)
-  }).catch(()=>{});
+  }).then(r=>{ if(r.ok) _obDel(OB_P, p.id); }).catch(()=>{});
 }
 
 function fbEliminarProducto(id) {
   if (!id) return;
   // Marca como deleted en Firebase para que se propague a los otros dispositivos
+  _obAdd(TB_P, id);
   fetch(`${_FB_PRODS_URL}/${id}.json`, {
     method: 'PUT', headers: {'Content-Type':'application/json'},
     body: JSON.stringify({ id, deleted: true })
-  }).catch(()=>{});
+  }).then(r=>{ if(r.ok) _obDel(TB_P, id); }).catch(()=>{});
 }
 
 function _mergeFirebaseProductos(data) {
@@ -1246,6 +1268,47 @@ function _migrarProductosAFirebase() {
     if (p && p.id && !p.deleted) { fbGuardarProducto(p); count++; }
   }
   if (count > 0 || products.length === 0) save(FLAG, true);
+}
+
+// ─── Reconciliación Firebase: reintenta lo que quedó pendiente en el outbox ───
+// Funciona SIEMPRE (aunque la PC/servidor esté apagado), porque Firebase
+// sincroniza los teléfonos entre sí de forma independiente.
+function _fbReconcile() {
+  if (!navigator.onLine) return;
+  let pendientes = 0;
+  // ── Ventas ──
+  const pv = _obGet(OB_V);
+  if (pv.size) for (const s of sales) if (pv.has(String(s.id)) && s.status !== 'Eliminado') { fbGuardar(s); pendientes++; }
+  for (const id of pv) if (!sales.some(s => String(s.id) === id)) _obDel(OB_V, id); // ya no existe local
+  const tv = _obGet(TB_V);
+  for (const id of tv) {
+    fetch(`${_FB_URL}/${_fbKey(id)}.json`, { method:'PATCH', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ id, status:'Eliminado' }) }).then(r=>{ if(r.ok) _obDel(TB_V, id); }).catch(()=>{});
+    pendientes++;
+  }
+  // ── Costos ──
+  const pc = _obGet(OB_C);
+  if (pc.size) for (const c of costs) if (c.created && pc.has(String(c.created))) { fbGuardarCosto(c); pendientes++; }
+  for (const id of pc) if (!costs.some(c => String(c.created) === id)) _obDel(OB_C, id);
+  const tc = _obGet(TB_C);
+  for (const id of tc) {
+    fetch(`${_FB_COSTOS_URL}/${id}.json`, { method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ created: (Number(id)||id), deleted:true }) }).then(r=>{ if(r.ok) _obDel(TB_C, id); }).catch(()=>{});
+    pendientes++;
+  }
+  // ── Productos ──
+  const pp = _obGet(OB_P);
+  if (pp.size) for (const p of products) if (pp.has(String(p.id))) { fbGuardarProducto(p); pendientes++; }
+  for (const id of pp) if (!products.some(p => String(p.id) === id)) _obDel(OB_P, id);
+  const tp = _obGet(TB_P);
+  for (const id of tp) {
+    fetch(`${_FB_PRODS_URL}/${id}.json`, { method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ id, deleted:true }) }).then(r=>{ if(r.ok) _obDel(TB_P, id); }).catch(()=>{});
+    pendientes++;
+  }
+  // Indicador discreto de pendientes (no molesta, solo informa)
+  const lsEl = document.getElementById('last-sync-text');
+  if (lsEl && pendientes > 0) lsEl.textContent = `⏳ ${pendientes} por enviar…`;
 }
 
 // ─── Sync productos: FASE 1 sube locales, FASE 2 baja del servidor ────────────
@@ -2863,11 +2926,17 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   setTimeout(_migrarVentasAFirebase, 1500);
   setTimeout(_migrarCostosAFirebase, 2000);
   setTimeout(_migrarProductosAFirebase, 2500);
+  // ── Reconciliar outbox: reintenta lo que no se pudo enviar ──
+  setTimeout(_fbReconcile, 5000);
   // ── Pull-sync desde servidor al arrancar ──
   setTimeout(() => sincronizarDesdeServidor(true), 3000);
   setTimeout(() => sincronizarCostos(true), 4000);
   setTimeout(() => sincronizarProductos(true), 4500);
-  // ── Sync periódico: cada 60s cuando el servidor bat está activo ──
+  // ── Reconciliación Firebase SIEMPRE activa (cada 20s, aunque la PC esté apagada) ──
+  // Garantiza que todo lo registrado llegue al resto de teléfonos en vivo.
+  setInterval(_fbReconcile, 20000);
+  window.addEventListener('online', _fbReconcile);
+  // ── Sync periódico con el Excel: cada 60s cuando el servidor bat está activo ──
   // Sube datos pendientes y baja cambios del Excel automáticamente
   setInterval(() => {
     if (!getPCUrl()) return;
