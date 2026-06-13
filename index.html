@@ -868,6 +868,11 @@ let currentDocType = 'FAC';
 let activeCat = 'Todos';
 let histFilter = 'Todos';
 
+// ── Trazabilidad: qué usuario registró cada venta/costo ──
+let _sessionUser = '';
+function _nombreUsuario(u){ if(!u) return ''; const b=(String(u).split('.')[0]||String(u)); return b.charAt(0).toUpperCase()+b.slice(1); }
+function _vendedorActual(){ return _nombreUsuario(_sessionUser); }
+
 // ════════════════════════════════════════════════════════
 //  WIFI SYNC — Servidor local en la PC
 // ════════════════════════════════════════════════════════
@@ -1785,7 +1790,7 @@ async function confirmSale() {
     id:nextId(currentDocType), type:currentDocType, client, date:today(),
     items:JSON.parse(JSON.stringify(cart)), dije, dijeQty, subtotal:sub, tax, taxRate:rate,
     taxState:state, shipping, usps, ccFee, total, payMethod:pay,
-    reseller:reseller?'SÍ':'NO', status:'Pendiente', created:Date.now()
+    reseller:reseller?'SÍ':'NO', status:'Pendiente', seller:_vendedorActual(), created:Date.now()
   };
 
   sales.unshift(sale); save('cacusa_sales', sales);
@@ -1833,6 +1838,7 @@ function renderHist() {
         <span class="badge ${sc}" onclick="cycleStatus(event,'${s.id}')">${s.status}</span>
         <span class="badge badge-gray">${s.payMethod||'—'}</span>
         ${s.reseller==='SÍ'?'<span class="badge badge-blue">Reseller</span>':''}
+        ${s.seller?`<span class="badge badge-gray">👤 ${s.seller}</span>`:''}
       </div>
       <div class="sale-foot"><div class="sale-items-preview">${preview}</div><div class="sale-total">${fmt(s.total)}</div></div>
     </div>`;
@@ -1867,6 +1873,7 @@ function openSaleDetail(id) {
     <div class="card" style="margin-bottom:12px;">
       <div class="total-row"><span>Cliente</span><span style="font-weight:600;">${s.client}</span></div>
       <div class="total-row"><span>Fecha</span><span>${s.date}</span></div>
+      ${s.seller?`<div class="total-row"><span>Registró</span><span>👤 ${s.seller}</span></div>`:''}
       ${s.taxState?`<div class="total-row"><span>Estado</span><span>${s.taxState} ${s.taxRate}%</span></div>`:''}
     </div>
     <div class="section-title" style="padding:0 0 8px;">Productos</div>
@@ -2210,7 +2217,7 @@ function renderCosts() {
     <div class="cost-card">
       <div class="cost-head"><span class="cost-type" style="color:${colors[c.type]||'#B07090'};">${c.type}</span><span class="cost-date">${c.date}</span></div>
       <div class="cost-desc">${c.desc}</div>
-      <div class="cost-meta"><div class="cost-amount">-${fmt(c.amount)}</div>${c.provider?`<div class="cost-prov">· ${c.provider}</div>`:''}<div style="flex:1;"></div><div class="btn btn-sm btn-danger" onclick="deleteCost(${idx})">×</div></div>
+      <div class="cost-meta"><div class="cost-amount">-${fmt(c.amount)}</div>${c.provider?`<div class="cost-prov">· ${c.provider}</div>`:''}${c.createdBy?`<div class="cost-prov">· 👤 ${c.createdBy}</div>`:''}<div style="flex:1;"></div><div class="btn btn-sm btn-danger" onclick="deleteCost(${idx})">×</div></div>
     </div>`).join('');
 }
 
@@ -2220,7 +2227,7 @@ async function saveCost() {
   const amount=parseFloat(document.getElementById('cost-amount-input').value);
   const prov=document.getElementById('cost-prov-input').value.trim();
   if(!desc||isNaN(amount)){showToast('Completa los campos requeridos','error');return;}
-  const cost={type,desc,amount,provider:prov,date:today(),created:Date.now()};
+  const cost={type,desc,amount,provider:prov,date:today(),createdBy:_vendedorActual(),created:Date.now()};
   costs.unshift(cost);save('cacusa_costs',costs);
   fbGuardarCosto(cost);
   document.getElementById('cost-desc-input').value='';
@@ -2323,7 +2330,7 @@ async function cobrarConSquare() {
     subtotal: sub, tax, taxRate: rate, taxState: state,
     shipping, usps, ccFee, total, payMethod: 'Tarjeta',
     reseller: reseller ? 'SÍ' : 'NO', status: 'Pendiente',
-    squarePending: true, created: Date.now()
+    seller: _vendedorActual(), squarePending: true, created: Date.now()
   };
   sales.unshift(sale);
   save('cacusa_sales', sales);
@@ -2825,6 +2832,7 @@ async function intentarLogin() {
   btn.disabled = true; btn.textContent = 'VERIFICANDO…';
   const hash = await _hashPass(pass);
   if (USUARIOS[user] && USUARIOS[user] === hash) {
+    _sessionUser = user;
     localStorage.setItem('cacusa_session', JSON.stringify({user, ts: Date.now()}));
     const ls = document.getElementById('login-screen');
     ls.style.opacity = '0';
@@ -2866,6 +2874,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   const usuarioActivo = _checkLogin();
   const loginEl = document.getElementById('login-screen');
   if (usuarioActivo) {
+    _sessionUser = usuarioActivo;
     loginEl.style.display = 'none';
     _mostrarUsuario(usuarioActivo);
   }
