@@ -387,7 +387,17 @@
     <label for="login-pass">Contraseña</label>
     <input id="login-pass" type="password" placeholder="••••••••" autocomplete="current-password">
     <button id="login-btn" onclick="intentarLogin()">INGRESAR</button>
+    <button id="login-faceid-btn" onclick="_waIniciarLogin()" style="display:none;margin-top:10px;width:100%;padding:13px;background:#1a1a2e;border:1.5px solid #C9637A55;border-radius:12px;color:#C9637A;font-weight:700;font-size:14px;letter-spacing:.05em;cursor:pointer;">🔐 INGRESAR CON FACE ID</button>
     <div id="login-error"></div>
+  </div>
+</div>
+<div id="login-faceid-setup" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9999;align-items:center;justify-content:center;">
+  <div style="background:#1a1124;border:1px solid #C9637A55;border-radius:20px;padding:36px 32px;max-width:340px;width:90%;text-align:center;color:white;">
+    <div style="font-size:48px;margin-bottom:12px;">🔐</div>
+    <div style="font-size:18px;font-weight:700;margin-bottom:8px;">Activar Face ID</div>
+    <div style="font-size:13px;color:#aaa;margin-bottom:24px;">¿Usar biometría para ingresar la próxima vez?</div>
+    <button onclick="_waActivar()" style="width:100%;padding:13px;background:#C9637A;border:none;border-radius:10px;color:white;font-weight:700;font-size:14px;margin-bottom:10px;cursor:pointer;">Activar Face ID</button>
+    <button onclick="_waOmitirSetup()" style="width:100%;padding:11px;background:none;border:1px solid #555;border-radius:10px;color:#aaa;font-size:13px;cursor:pointer;">Ahora no</button>
   </div>
 </div>
 
@@ -997,21 +1007,21 @@ function _obDel(k,id){ const s=_obGet(k); if(s.delete(String(id))) save(k,[...s]
 function fbGuardar(s) {
   if(!s || !s.id) return;
   _obAdd(OB_V, s.id);
-  fetch(`${_FB_URL}/${_fbKey(s.id)}.json`, {
+  fetch(_fbUrl(`${_FB_URL}/${_fbKey(s.id)}.json`), {
     method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(s)
   }).then(r=>{ if(r.ok) _obDel(OB_V, s.id); }).catch(()=>{});
 }
 function fbActualizar(id, u) {
   if(!id) return;
   _obAdd(OB_V, id);
-  fetch(`${_FB_URL}/${_fbKey(id)}.json`, {
+  fetch(_fbUrl(`${_FB_URL}/${_fbKey(id)}.json`), {
     method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify(u)
   }).then(r=>{ if(r.ok) _obDel(OB_V, id); }).catch(()=>{});
 }
 function fbEliminar(id) {
   if(!id) return;
   _obAdd(TB_V, id);
-  fetch(`${_FB_URL}/${_fbKey(id)}.json`, {
+  fetch(_fbUrl(`${_FB_URL}/${_fbKey(id)}.json`), {
     method: 'PATCH', headers: {'Content-Type':'application/json'},
     body: JSON.stringify({id, status:'Eliminado'})
   }).then(r=>{ if(r.ok) _obDel(TB_V, id); }).catch(()=>{});
@@ -1049,7 +1059,8 @@ function _mergeFirebaseData(data) {
 function _iniciarFirebase() {
   // ── Ventas ──
   try {
-    const es = new EventSource(`${_FB_URL}.json`);
+    const es = new EventSource(_fbUrl(`${_FB_URL}.json`));
+    _fbEsSources.push(es);
     es.addEventListener('put', e => {
       try {
         const { path, data } = JSON.parse(e.data);
@@ -1064,7 +1075,7 @@ function _iniciarFirebase() {
         if (path === '/') { _mergeFirebaseData(data); }
         else {
           const key = path.slice(1);
-          fetch(`${_FB_URL}/${key}.json`)
+          fetch(_fbUrl(`${_FB_URL}/${key}.json`))
             .then(r => r.json())
             .then(item => { if (item && item.id) _mergeFirebaseData({ [key]: item }); })
             .catch(()=>{});
@@ -1074,7 +1085,8 @@ function _iniciarFirebase() {
   } catch(_) {}
   // ── Costos ──
   try {
-    const esCostos = new EventSource(`${_FB_COSTOS_URL}.json`);
+    const esCostos = new EventSource(_fbUrl(`${_FB_COSTOS_URL}.json`));
+    _fbEsSources.push(esCostos);
     esCostos.addEventListener('put', e => {
       try {
         const { path, data } = JSON.parse(e.data);
@@ -1089,7 +1101,7 @@ function _iniciarFirebase() {
         if (path === '/') { _mergeFirebaseCostos(data); }
         else {
           const key = path.slice(1);
-          fetch(`${_FB_COSTOS_URL}/${key}.json`)
+          fetch(_fbUrl(`${_FB_COSTOS_URL}/${key}.json`))
             .then(r => r.json()).then(item => { if (item && item.created) _mergeFirebaseCostos({ [key]: item }); })
             .catch(()=>{});
         }
@@ -1098,7 +1110,8 @@ function _iniciarFirebase() {
   } catch(_) {}
   // ── Productos ──
   try {
-    const esProds = new EventSource(`${_FB_PRODS_URL}.json`);
+    const esProds = new EventSource(_fbUrl(`${_FB_PRODS_URL}.json`));
+    _fbEsSources.push(esProds);
     esProds.addEventListener('put', e => {
       try {
         const { path, data } = JSON.parse(e.data);
@@ -1113,7 +1126,7 @@ function _iniciarFirebase() {
         if (path === '/') { _mergeFirebaseProductos(data); }
         else {
           const key = path.slice(1);
-          fetch(`${_FB_PRODS_URL}/${key}.json`)
+          fetch(_fbUrl(`${_FB_PRODS_URL}/${key}.json`))
             .then(r => r.json()).then(item => { if (item && item.id) _mergeFirebaseProductos({ [key]: item }); })
             .catch(()=>{});
         }
@@ -1145,7 +1158,7 @@ const _FB_COSTOS_URL = 'https://cacusa-pos-default-rtdb.firebaseio.com/cacusa_co
 function fbGuardarCosto(c) {
   if (!c || !c.created) return;
   _obAdd(OB_C, c.created);
-  fetch(`${_FB_COSTOS_URL}/${c.created}.json`, {
+  fetch(_fbUrl(`${_FB_COSTOS_URL}/${c.created}.json`), {
     method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(c)
   }).then(r=>{ if(r.ok) _obDel(OB_C, c.created); }).catch(()=>{});
 }
@@ -1154,7 +1167,7 @@ function fbEliminarCosto(created) {
   if (!created) return;
   // Soft-delete: marca como deleted:true para que todos los dispositivos lo eliminen
   _obAdd(TB_C, created);
-  fetch(`${_FB_COSTOS_URL}/${created}.json`, {
+  fetch(_fbUrl(`${_FB_COSTOS_URL}/${created}.json`), {
     method: 'PUT', headers: {'Content-Type':'application/json'},
     body: JSON.stringify({ created, deleted: true })
   }).then(r=>{ if(r.ok) _obDel(TB_C, created); }).catch(()=>{});
@@ -1213,10 +1226,59 @@ function _migrarCostosAFirebase() {
 // ════════════════════════════════════════════════════════
 const _FB_PRODS_URL = 'https://cacusa-pos-default-rtdb.firebaseio.com/cacusa_productos';
 
+// ── Firebase Auth (email/password + refresh) ─────────────────────────────────
+const _FB_AUTH_KEY = 'AIzaSyDwEVeHU0mwSekHbrKM8EjBgn4HSM3zZfM';
+const _FB_EMAIL_MAP = { 'robin.gonzalez': 'robin_gonzalez@live.com', 'tita.jaramillo': 'titajaramillolopez@gmail.com' };
+let _fbIdToken = null, _fbTokenExpiry = 0;
+let _fbEsSources = [];
+
+async function _fbLoginEmail(email, password) {
+  try {
+    const r = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${_FB_AUTH_KEY}`,
+      { method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({email, password, returnSecureToken: true}) }
+    );
+    if (r.ok) {
+      const d = await r.json();
+      _fbIdToken = d.idToken || null;
+      _fbTokenExpiry = Date.now() + (parseInt(d.expiresIn || 3600) - 120) * 1000;
+      if (d.refreshToken) localStorage.setItem('cacusa_fb_refresh', d.refreshToken);
+    }
+  } catch(_) {}
+}
+
+async function _fbRefreshToken() {
+  const rt = localStorage.getItem('cacusa_fb_refresh');
+  if (!rt) return;
+  try {
+    const r = await fetch(
+      `https://securetoken.googleapis.com/v1/token?key=${_FB_AUTH_KEY}`,
+      { method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded'},
+        body: `grant_type=refresh_token&refresh_token=${encodeURIComponent(rt)}` }
+    );
+    if (r.ok) {
+      const d = await r.json();
+      _fbIdToken = d.id_token || null;
+      _fbTokenExpiry = Date.now() + (parseInt(d.expires_in || 3600) - 120) * 1000;
+      if (d.refresh_token) localStorage.setItem('cacusa_fb_refresh', d.refresh_token);
+      _fbReiniciarES();
+    }
+  } catch(_) {}
+}
+
+function _fbUrl(base) { return _fbIdToken ? `${base}?auth=${_fbIdToken}` : base; }
+
+function _fbReiniciarES() {
+  _fbEsSources.forEach(es => { try { es.close(); } catch(_) {} });
+  _fbEsSources = [];
+  _iniciarFirebase();
+}
+
 function fbGuardarProducto(p) {
   if (!p || !p.id) return;
   _obAdd(OB_P, p.id);
-  fetch(`${_FB_PRODS_URL}/${p.id}.json`, {
+  fetch(_fbUrl(`${_FB_PRODS_URL}/${p.id}.json`), {
     method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(p)
   }).then(r=>{ if(r.ok) _obDel(OB_P, p.id); }).catch(()=>{});
 }
@@ -1225,7 +1287,7 @@ function fbEliminarProducto(id) {
   if (!id) return;
   // Marca como deleted en Firebase para que se propague a los otros dispositivos
   _obAdd(TB_P, id);
-  fetch(`${_FB_PRODS_URL}/${id}.json`, {
+  fetch(_fbUrl(`${_FB_PRODS_URL}/${id}.json`), {
     method: 'PUT', headers: {'Content-Type':'application/json'},
     body: JSON.stringify({ id, deleted: true })
   }).then(r=>{ if(r.ok) _obDel(TB_P, id); }).catch(()=>{});
@@ -1287,7 +1349,7 @@ function _fbReconcile() {
   for (const id of pv) if (!sales.some(s => String(s.id) === id)) _obDel(OB_V, id); // ya no existe local
   const tv = _obGet(TB_V);
   for (const id of tv) {
-    fetch(`${_FB_URL}/${_fbKey(id)}.json`, { method:'PATCH', headers:{'Content-Type':'application/json'},
+    fetch(_fbUrl(`${_FB_URL}/${_fbKey(id)}.json`), { method:'PATCH', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ id, status:'Eliminado' }) }).then(r=>{ if(r.ok) _obDel(TB_V, id); }).catch(()=>{});
     pendientes++;
   }
@@ -1297,7 +1359,7 @@ function _fbReconcile() {
   for (const id of pc) if (!costs.some(c => String(c.created) === id)) _obDel(OB_C, id);
   const tc = _obGet(TB_C);
   for (const id of tc) {
-    fetch(`${_FB_COSTOS_URL}/${id}.json`, { method:'PUT', headers:{'Content-Type':'application/json'},
+    fetch(_fbUrl(`${_FB_COSTOS_URL}/${id}.json`), { method:'PUT', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ created: (Number(id)||id), deleted:true }) }).then(r=>{ if(r.ok) _obDel(TB_C, id); }).catch(()=>{});
     pendientes++;
   }
@@ -1307,7 +1369,7 @@ function _fbReconcile() {
   for (const id of pp) if (!products.some(p => String(p.id) === id)) _obDel(OB_P, id);
   const tp = _obGet(TB_P);
   for (const id of tp) {
-    fetch(`${_FB_PRODS_URL}/${id}.json`, { method:'PUT', headers:{'Content-Type':'application/json'},
+    fetch(_fbUrl(`${_FB_PRODS_URL}/${id}.json`), { method:'PUT', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ id, deleted:true }) }).then(r=>{ if(r.ok) _obDel(TB_P, id); }).catch(()=>{});
     pendientes++;
   }
@@ -2758,8 +2820,8 @@ function _checkSquareCallback() {
 //  SISTEMA DE LOGIN
 // ════════════════════════════════════════
 const USUARIOS = {
-  'robin.gonzalez': '60fa773a2834d6a14bf770b729b2415c3f55819cee0712bf304558a3bb711cf4',
-  'tita.jaramillo': '60fa773a2834d6a14bf770b729b2415c3f55819cee0712bf304558a3bb711cf4',
+  'robin.gonzalez': 'ef7e0a9df80c747a743712fc2baa8cf63054102ca514ef20e000ae48c988c00c',
+  'tita.jaramillo': 'ef7e0a9df80c747a743712fc2baa8cf63054102ca514ef20e000ae48c988c00c',
 };
 
 // SHA-256 puro en JS — funciona en HTTP y HTTPS sin Web Crypto API
@@ -2834,16 +2896,141 @@ async function intentarLogin() {
   if (USUARIOS[user] && USUARIOS[user] === hash) {
     _sessionUser = user;
     localStorage.setItem('cacusa_session', JSON.stringify({user, ts: Date.now()}));
-    const ls = document.getElementById('login-screen');
-    ls.style.opacity = '0';
-    setTimeout(() => { ls.style.display = 'none'; }, 400);
-    _mostrarUsuario(user);
+    // Firebase auth (no bloquea el inicio de sesión si falla)
+    const fbEmail = _FB_EMAIL_MAP[user];
+    if (fbEmail) _fbLoginEmail(fbEmail, pass).then(() => _fbReiniciarES()).catch(()=>{});
+    // Ofrecer Face ID si el dispositivo lo soporta y no está configurado aún
+    if (_waSupported() && !_waHasCred(user)) {
+      _waPendingUser = user;
+      const setupEl = document.getElementById('login-faceid-setup');
+      if (setupEl) { setupEl.style.display = 'flex'; }
+    } else {
+      const ls = document.getElementById('login-screen');
+      ls.style.opacity = '0';
+      setTimeout(() => { ls.style.display = 'none'; }, 400);
+      _mostrarUsuario(user);
+    }
   } else {
     errEl.textContent = '❌ Usuario o contraseña incorrectos';
     passEl.value = '';
     passEl.focus();
     btn.disabled = false; btn.textContent = 'INGRESAR';
   }
+}
+
+// ── WebAuthn (Face ID / biometría) ────────────────────────────────────────────
+let _waPendingUser = null;
+
+function _waSupported() { return !!(window.PublicKeyCredential && navigator.credentials); }
+function _waHasCred(u)  { return !!localStorage.getItem(`cacusa_wa:${u}`); }
+function _waB64d(s) {
+  s = s.replace(/-/g,'+').replace(/_/g,'/'); while (s.length%4) s+='=';
+  const b=atob(s), a=new Uint8Array(b.length);
+  for(let i=0;i<b.length;i++) a[i]=b.charCodeAt(i); return a;
+}
+function _waB64e(buf) {
+  const a=buf instanceof Uint8Array?buf:new Uint8Array(buf); let s='';
+  for(let i=0;i<a.length;i++) s+=String.fromCharCode(a[i]);
+  return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+
+async function _waRegistrar(user) {
+  const r1 = await fetch('/webauthn/reg-challenge', {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user })
+  });
+  if (!r1.ok) throw new Error('Error al obtener challenge');
+  const ch = await r1.json();
+  const cred = await navigator.credentials.create({ publicKey: {
+    challenge: _waB64d(ch.challenge),
+    rp: { id: ch.rpId, name: 'CacusaPOS' },
+    user: { id: new TextEncoder().encode(user), name: user, displayName: user },
+    pubKeyCredParams: [{ type:'public-key', alg:-7 }, { type:'public-key', alg:-257 }],
+    authenticatorSelection: { authenticatorAttachment:'platform', userVerification:'preferred', residentKey:'discouraged' },
+    timeout: 60000, attestation: 'none',
+  }});
+  const r2 = await fetch('/webauthn/register', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      user, challenge: ch.challenge,
+      credentialId: _waB64e(new Uint8Array(cred.rawId)),
+      attestationObject: _waB64e(new Uint8Array(cred.response.attestationObject)),
+      clientDataJSON: _waB64e(new Uint8Array(cred.response.clientDataJSON)),
+    })
+  });
+  if (!r2.ok) { const d=await r2.json(); throw new Error(d.error||'Error al registrar'); }
+  localStorage.setItem(`cacusa_wa:${user}`, _waB64e(new Uint8Array(cred.rawId)));
+}
+
+async function _waLoginFaceId(user) {
+  const r1 = await fetch('/webauthn/login-challenge', {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user })
+  });
+  if (!r1.ok) { const d=await r1.json(); throw new Error(d.error||'Challenge error'); }
+  const ch = await r1.json();
+  const a = await navigator.credentials.get({ publicKey: {
+    challenge: _waB64d(ch.challenge),
+    allowCredentials: [{ id:_waB64d(ch.credentialId), type:'public-key' }],
+    rpId: ch.rpId, userVerification: 'preferred', timeout: 60000,
+  }});
+  const r2 = await fetch('/webauthn/login', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      user, challenge: ch.challenge,
+      credentialId: _waB64e(new Uint8Array(a.rawId)),
+      authenticatorData: _waB64e(new Uint8Array(a.response.authenticatorData)),
+      clientDataJSON: _waB64e(new Uint8Array(a.response.clientDataJSON)),
+      signature: _waB64e(new Uint8Array(a.response.signature)),
+    })
+  });
+  const d = await r2.json();
+  if (!r2.ok) throw new Error(d.error||'Autenticación fallida');
+  return d;
+}
+
+async function _waIniciarLogin() {
+  const userEl = document.getElementById('login-user');
+  const errEl  = document.getElementById('login-error');
+  const user   = (userEl?.value||'').trim().toLowerCase();
+  if (!user) { errEl.textContent = 'Selecciona tu usuario'; return; }
+  errEl.textContent = '';
+  const btn = document.getElementById('login-faceid-btn');
+  btn.disabled = true; btn.textContent = 'Verificando…';
+  try {
+    await _waLoginFaceId(user);
+    _sessionUser = user;
+    localStorage.setItem('cacusa_session', JSON.stringify({ user, ts: Date.now() }));
+    _fbRefreshToken().then(() => _fbReiniciarES()).catch(()=>{});
+    const ls = document.getElementById('login-screen');
+    ls.style.opacity = '0';
+    setTimeout(() => { ls.style.display = 'none'; }, 400);
+    _mostrarUsuario(user);
+  } catch(e) {
+    if (e.name !== 'NotAllowedError') errEl.textContent = '❌ ' + (e.message||'Error biométrico');
+  } finally {
+    btn.disabled = false; btn.textContent = '🔐 INGRESAR CON FACE ID';
+  }
+}
+
+async function _waActivar() {
+  const setupEl = document.getElementById('login-faceid-setup');
+  const btn = setupEl?.querySelector('button');
+  if (btn) { btn.disabled = true; btn.textContent = 'Configurando…'; }
+  try { await _waRegistrar(_waPendingUser); } catch(_) {}
+  if (setupEl) setupEl.style.display = 'none';
+  const ls = document.getElementById('login-screen');
+  ls.style.opacity = '0';
+  setTimeout(() => { ls.style.display = 'none'; }, 400);
+  _mostrarUsuario(_waPendingUser);
+  _waPendingUser = null;
+}
+
+function _waOmitirSetup() {
+  document.getElementById('login-faceid-setup').style.display = 'none';
+  const ls = document.getElementById('login-screen');
+  ls.style.opacity = '0';
+  setTimeout(() => { ls.style.display = 'none'; }, 400);
+  _mostrarUsuario(_waPendingUser);
+  _waPendingUser = null;
 }
 
 function cerrarSesion() {
@@ -2877,7 +3064,11 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     _sessionUser = usuarioActivo;
     loginEl.style.display = 'none';
     _mostrarUsuario(usuarioActivo);
+    // Restaurar token Firebase desde refresh token (sesión previa)
+    _fbRefreshToken().catch(()=>{});
   }
+  // Renovar token Firebase cada 50 min para mantener sesión activa
+  setInterval(() => { if (_sessionUser) _fbRefreshToken().catch(()=>{}); }, 50 * 60 * 1000);
   // Teclas Enter en formulario login
   document.getElementById('login-user')?.addEventListener('keydown', e => {
     if (e.key === 'Enter') document.getElementById('login-pass')?.focus();
@@ -2885,6 +3076,17 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   document.getElementById('login-pass')?.addEventListener('keydown', e => {
     if (e.key === 'Enter') intentarLogin();
   });
+  // Mostrar botón Face ID si el usuario tiene credencial registrada
+  if (_waSupported()) {
+    const userEl = document.getElementById('login-user');
+    const faceBtn = document.getElementById('login-faceid-btn');
+    const updateFaceBtn = () => {
+      if (faceBtn) faceBtn.style.display = _waHasCred(userEl?.value||'') ? 'block' : 'none';
+    };
+    userEl?.addEventListener('change', updateFaceBtn);
+    userEl?.addEventListener('input',  updateFaceBtn);
+    updateFaceBtn();
+  }
 
   // ── Square: verificar callback o pago pendiente ──
   _checkSquareCallback();
