@@ -591,6 +591,10 @@
             </div>
           </div>
           <div id="wifi-test-result" style="font-size:12px; margin-top:-6px; margin-bottom:10px; display:none;"></div>
+          <div class="input-group">
+            <label class="input-label">🔑 Token del servidor (aparece en la ventana rosada de la PC)</label>
+            <input class="input-field" id="pc-token-input" type="password" placeholder="Pega aquí el token" style="width:100%;" oninput="guardarTokenPC()" autocapitalize="none" autocorrect="off" spellcheck="false">
+          </div>
         </div>
         </div>
 
@@ -910,6 +914,28 @@ function guardarIP() {
   save('cacusa_pc_url', url);
 }
 
+function guardarTokenPC() {
+  save('cacusa_pc_token', document.getElementById('pc-token-input').value.trim());
+}
+
+// Inyecta el token del servidor en TODAS las llamadas fetch al PC.
+// Un solo punto cubre ventas, costos, productos, PDFs, Square y WebAuthn.
+const _fetchOrig = window.fetch.bind(window);
+window.fetch = function(input, init) {
+  try {
+    const pc = getPCUrl();
+    const u = typeof input === 'string' ? input : ((input && input.url) || '');
+    if (pc && u.indexOf(pc) === 0) {
+      const tok = load('cacusa_pc_token', '');
+      if (tok) {
+        init = init || {};
+        init.headers = Object.assign({}, init.headers || {}, { 'X-Cacusa-Token': tok });
+      }
+    }
+  } catch(_) {}
+  return _fetchOrig(input, init);
+};
+
 async function probarConexion() {
   const url = getPCUrl();
   const res  = document.getElementById('wifi-test-result');
@@ -920,8 +946,14 @@ async function probarConexion() {
     const r = await fetch(url+'/ping', { signal: AbortSignal.timeout(4000), headers: {'ngrok-skip-browser-warning':'1'} });
     const j = await r.json();
     if (j.ok) {
-      res.textContent = '✅ ¡Conectado! El servidor está activo.'; res.style.color='var(--green)';
-      actualizarWifiUI(true);
+      if (j.auth === false) {
+        res.textContent = '⚠️ Servidor activo pero el token falta o es incorrecto. Cópialo de la ventana rosada de la PC.';
+        res.style.color='var(--gold, #C9A100)';
+        actualizarWifiUI(false);
+      } else {
+        res.textContent = '✅ ¡Conectado! El servidor está activo.'; res.style.color='var(--green)';
+        actualizarWifiUI(true);
+      }
     } else throw new Error();
   } catch {
     res.textContent = '❌ No se pudo conectar. Verifica que el servidor esté abierto en la PC y que la URL ngrok sea correcta.';
@@ -1680,6 +1712,8 @@ function switchScreen(id, btn) {
     const ip = getPCUrl();
     const ipEl = document.getElementById('pc-ip-input');
     if (ipEl && ip) ipEl.value = ip.replace('http://','');
+    const tokEl = document.getElementById('pc-token-input');
+    if (tokEl) tokEl.value = load('cacusa_pc_token','');
   }
 }
 
@@ -3126,6 +3160,8 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     const el = document.getElementById('pc-ip-input');
     if (el) el.value = ip;  // mostrar URL completa (ngrok o IP local)
   }
+  const tokInit = document.getElementById('pc-token-input');
+  if (tokInit) tokInit.value = load('cacusa_pc_token','');
   // Mostrar última sync
   const ls = load('last-sync','');
   const lsEl = document.getElementById('last-sync-text');

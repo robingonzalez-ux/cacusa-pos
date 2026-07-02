@@ -93,6 +93,29 @@ def _wa_save(data):
     import json as _json
     WA_CREDS_FILE.write_text(_json.dumps(data, indent=2), 'utf-8')
 
+# ── Token de autenticación de la API ─────────────────────────────
+# Se genera una sola vez y queda guardado junto al servidor. La app lo envía
+# en el header X-Cacusa-Token; sin él, los endpoints sensibles devuelven 401.
+API_TOKEN_FILE = BASE / 'Aplicacion Movil' / 'server_token.txt'
+
+def _cargar_api_token():
+    try:
+        if API_TOKEN_FILE.exists():
+            t = API_TOKEN_FILE.read_text('utf-8').strip()
+            if t:
+                return t
+    except Exception:
+        pass
+    import secrets
+    t = secrets.token_urlsafe(24)
+    try:
+        API_TOKEN_FILE.write_text(t, 'utf-8')
+    except Exception:
+        pass
+    return t
+
+API_TOKEN = _cargar_api_token()
+
 flask_app = Flask(__name__)
 CORS(flask_app)            # permite conexiones desde el iPhone
 
@@ -100,6 +123,23 @@ CORS(flask_app)            # permite conexiones desde el iPhone
 def _skip_ngrok_warning(response):
     response.headers['ngrok-skip-browser-warning'] = '1'
     return response
+
+# Rutas que no exigen token: la app servida, el ping de prueba y el
+# trigger del admin worker (solo dispara una lectura del catálogo público).
+RUTAS_PUBLICAS = {'/', '/app', '/ping', '/sync-admin-productos'}
+
+@flask_app.before_request
+def _verificar_token():
+    import hmac as _hmac
+    if request.method == 'OPTIONS':
+        return None
+    path = request.path.rstrip('/') or '/'
+    if path in RUTAS_PUBLICAS:
+        return None
+    tok = request.headers.get('X-Cacusa-Token', '')
+    if tok and _hmac.compare_digest(tok, API_TOKEN):
+        return None
+    return jsonify({'ok': False, 'error': 'Token inválido. Copia el token de la ventana del servidor en Ajustes → Token del servidor.'}), 401
 
 ui_log        = None       # callback para mostrar en la UI
 ngrok_proc    = None       # proceso ngrok
@@ -545,7 +585,10 @@ def serve_app():
 
 @flask_app.route('/ping', methods=['GET', 'OPTIONS'])
 def ping():
-    return jsonify({'ok': True, 'service': 'CacusaPOS'})
+    import hmac as _hmac
+    tok = request.headers.get('X-Cacusa-Token', '')
+    autenticado = bool(tok and _hmac.compare_digest(tok, API_TOKEN))
+    return jsonify({'ok': True, 'service': 'CacusaPOS', 'auth': autenticado})
 
 @flask_app.route('/venta', methods=['POST', 'OPTIONS'])
 def recibir_venta():
@@ -1301,7 +1344,7 @@ class ServerUI(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("CacusaPOS · Servidor WiFi")
-        self.geometry("540x560")
+        self.geometry("540x660")
         self.resizable(False, False)
         self.configure(bg='#FDE8F0')
         self.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -1367,6 +1410,23 @@ class ServerUI(tk.Tk):
                   font=('Helvetica', 10, 'bold'), bg='#C9637A', fg='white',
                   activebackground='#A04060', relief='flat', padx=10, pady=4,
                   cursor='hand2', command=self._copiar_ip).pack(side='right')
+
+        # ── Tarjeta Token ──
+        tok_card = tk.Frame(body, bg='#FFF8E1', relief='solid', bd=1)
+        tok_card.pack(fill='x', pady=(0, 10))
+        tk.Label(tok_card,
+                 text="🔑  Token de la app (pégalo en Ajustes → Token del servidor):",
+                 font=('Helvetica', 9, 'bold'), bg='#FFF8E1', fg='#8D6E00',
+                 justify='left').pack(padx=14, pady=(8, 2), anchor='w')
+        tok_row = tk.Frame(tok_card, bg='#FFF8E1')
+        tok_row.pack(fill='x', padx=14, pady=(0, 8))
+        self.token_var = tk.StringVar(value=API_TOKEN)
+        tk.Label(tok_row, textvariable=self.token_var,
+                 font=('Courier', 11, 'bold'), bg='#FFF8E1', fg='#8D6E00').pack(side='left')
+        tk.Button(tok_row, text="  Copiar  ",
+                  font=('Helvetica', 10, 'bold'), bg='#C9A100', fg='white',
+                  activebackground='#8D6E00', relief='flat', padx=10, pady=4,
+                  cursor='hand2', command=self._copiar_token).pack(side='right')
 
         # ── Estado ──
         self.lbl_estado = tk.Label(body,
@@ -1436,6 +1496,13 @@ class ServerUI(tk.Tk):
         self.lbl_estado.config(text="✅  URL HTTPS copiada. Ábrela en Safari del iPhone", fg='#2E7D32')
         self.after(3000, lambda: self.lbl_estado.config(
             text="🟢  Servidor activo · ngrok HTTPS listo", fg='#4CAF7D'))
+
+    def _copiar_token(self):
+        self.clipboard_clear()
+        self.clipboard_append(API_TOKEN)
+        self.lbl_estado.config(text="✅  Token copiado. Pégalo en Ajustes → Token del servidor", fg='#8D6E00')
+        self.after(3000, lambda: self.lbl_estado.config(
+            text="🟢  Servidor activo · Esperando ventas del iPhone", fg='#4CAF7D'))
 
     def _copiar_ip(self):
         self.clipboard_clear()
