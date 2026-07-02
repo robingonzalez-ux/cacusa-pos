@@ -746,10 +746,31 @@ def guardar_producto():
         return jsonify({'ok': False, 'error': str(e)}), 500
 
 ADMIN_PRODUCTS_URL = 'https://cacusabytaitus.com/data/products.json'
+# Registro de qué IDs vinieron del admin. Permite borrar del Excel SOLO productos
+# que el admin eliminó, sin tocar los productos nativos del POS (P001, P002...).
+ADMIN_IDS_FILE = BASE / 'Aplicacion Movil' / 'admin_product_ids.json'
+
+def _cargar_admin_ids():
+    import json as _json
+    try:
+        if ADMIN_IDS_FILE.exists():
+            return set(_json.loads(ADMIN_IDS_FILE.read_text('utf-8')))
+    except Exception:
+        pass
+    return set()
+
+def _guardar_admin_ids(ids):
+    import json as _json
+    try:
+        ADMIN_IDS_FILE.write_text(_json.dumps(sorted(ids)), 'utf-8')
+    except Exception:
+        pass
 
 def sincronizar_desde_admin():
     """Descarga products.json del sitio web y los escribe en la hoja PRODUCTOS del Excel.
-    Abre y guarda el Excel UNA sola vez para todos los productos (no una vez por producto)."""
+    Abre y guarda el Excel UNA sola vez para todos los productos (no una vez por producto).
+    Borra del Excel los productos que el admin eliminó (según el registro de IDs del admin),
+    sin tocar los productos creados directamente en el POS."""
     import json as _json
     try:
         req = urllib.request.Request(
@@ -783,6 +804,11 @@ def sincronizar_desde_admin():
     if not prods:
         return 0, None
 
+    current_ids = {p['id'] for p in prods}
+    prev_ids    = _cargar_admin_ids()
+    # Productos que el admin tenía antes y ahora eliminó → hay que quitarlos del Excel
+    a_borrar = prev_ids - current_ids
+
     count = 0
     with _excel_lock:
         wb = openpyxl.load_workbook(EXCEL, keep_vba=True)
@@ -808,7 +834,12 @@ def sincronizar_desde_admin():
             ws.cell(fila, 5).value = round(prod['price'], 2)
             ws.cell(fila, 7).value = 'Sí' if prod['active'] else 'No'
             count += 1
+        # Borrar filas de productos eliminados en el admin (de abajo hacia arriba)
+        filas_borrar = sorted((filas[i] for i in a_borrar if i in filas), reverse=True)
+        for fila in filas_borrar:
+            ws.delete_rows(fila, 1)
         wb.save(EXCEL)
+    _guardar_admin_ids(current_ids)
     return count, None
 
 @flask_app.route('/sync-admin-productos', methods=['GET', 'POST', 'OPTIONS'])
