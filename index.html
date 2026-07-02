@@ -2381,8 +2381,13 @@ function saveProduct() {
     prod=products.find(x=>x.id===editId);
     if(prod){prod.name=name;prod.cat=cat;prod.price=price;prod.active=active;}
   } else {
-    // Generar ID seguro basado en el máximo existente para evitar colisiones entre dispositivos
-    const nums=products.map(p=>parseInt((p.id||'').replace(/\D/g,''))||0);
+    // Generar ID seguro basado en el máximo existente para evitar colisiones entre dispositivos.
+    // Solo cuenta IDs nativos del POS (P + 3-4 dígitos): los importados del admin usan
+    // timestamps largos (P1780…) y contaminarían la secuencia con números de 13 dígitos.
+    const nums=products.map(p=>{
+      const m=/^P(\d{3,4})$/.exec(p.id||'');
+      return m?parseInt(m[1],10):0;
+    });
     const nextNum=Math.max(0,...nums)+1;
     prod={id:'P'+String(nextNum).padStart(3,'0'),name,cat,price,active};
     products.push(prod);
@@ -2470,12 +2475,10 @@ function clearAllData() {
   save('cacusa_fb_migrado_v1', false);
   save('cacusa_fb_costos_migrado_v1', false);
   save('cacusa_fb_prods_migrado_v1', false);
-  renderHist(); renderCosts(); renderProds(); renderPOS();
-  showToast('Datos locales borrados — se recuperarán desde Firebase', 'error');
-  // Recargar desde Firebase inmediatamente
-  setTimeout(_migrarVentasAFirebase, 500);
-  setTimeout(_migrarCostosAFirebase, 1000);
-  setTimeout(_migrarProductosAFirebase, 1500);
+  showToast('Datos locales borrados — recargando para recuperar desde Firebase…', 'error');
+  // Recargar la página: el snapshot inicial del EventSource solo llega al conectar,
+  // así que sin recarga los datos NO vuelven de Firebase.
+  setTimeout(() => location.reload(), 1200);
 }
 
 function exportarVentas() {
