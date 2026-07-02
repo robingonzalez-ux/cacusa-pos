@@ -1283,6 +1283,39 @@ const _FB_PRODS_URL = 'https://cacusa-pos-default-rtdb.firebaseio.com/cacusa_pro
 // Worker de Cloudflare (siempre encendido) — usado para lo que Square bloquea por CORS en el navegador
 const ADMIN_WORKER_URL = 'https://cacusa-admin.facturacioncacusa.workers.dev';
 
+// ── Categorías del admin web (fuente de verdad) ──────────────────────────────
+// El admin web publica su lista maestra de categorías en products.json (config.categories).
+// El POS la lee directo (products.json trae CORS *) para no quedar desfasado cuando
+// Tita/Robin crean o renombran una categoría desde el admin. No depende de la PC.
+const _ADMIN_PRODUCTS_URL = 'https://cacusabytaitus.com/data/products.json';
+function getCategoriasAdmin() { return load('cacusa_admin_cats', []) || []; }
+
+async function syncCategoriasAdmin() {
+  try {
+    const r = await fetch(_ADMIN_PRODUCTS_URL, { cache: 'no-store', signal: AbortSignal.timeout(8000) });
+    if (!r.ok) return;
+    const data = await r.json();
+    const cats = data && data.config && Array.isArray(data.config.categories) ? data.config.categories : null;
+    if (!cats || !cats.length) return;
+    const limpio = cats.map(c => String(c).trim()).filter(Boolean);
+    const antes = JSON.stringify(getCategoriasAdmin());
+    if (JSON.stringify(limpio) !== antes) {
+      save('cacusa_admin_cats', limpio);
+      // Refrescar UI si estamos en pantallas que muestran categorías
+      renderPOS();
+      const dl = document.getElementById('cats-datalist');
+      if (dl) dl.innerHTML = categoriasParaDatalist().map(c => `<option value="${c}">`).join('');
+    }
+  } catch(_) {}
+}
+
+// Lista combinada para sugerencias al crear/editar productos: admin + las que ya usan los productos
+function categoriasParaDatalist() {
+  const set = new Set(getCategoriasAdmin());
+  products.forEach(p => { if (p.cat) set.add(p.cat); });
+  return [...set];
+}
+
 // ── Firebase Auth (email/password + refresh) ─────────────────────────────────
 const _FB_AUTH_KEY = 'AIzaSyDwEVeHU0mwSekHbrKM8EjBgn4HSM3zZfM';
 const _FB_EMAIL_MAP = { 'robin.gonzalez': 'robin_gonzalez@live.com', 'tita.jaramillo': 'titajaramillolopez@gmail.com' };
@@ -1730,7 +1763,8 @@ function switchScreen(id, btn) {
   document.getElementById('screen-'+id).classList.add('active');
   btn.classList.add('active');
   if (id==='hist') { renderHist(); sincronizarDesdeServidor(); }
-  if (id==='prods') { renderProds(); sincronizarProductos(); }
+  if (id==='prods') { renderProds(); sincronizarProductos(); syncCategoriasAdmin(); }
+  if (id==='pos')   { syncCategoriasAdmin(); }
   if (id==='costs') { renderCosts(); sincronizarCostos(); }
   if (id==='config') {
     const ls = load('last-sync','—');
@@ -1764,7 +1798,7 @@ function renderPOS() {
   document.getElementById('pos-date').textContent=`${days[d.getDay()]}, ${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
   renderProductGrid();
   const dl=document.getElementById('cats-datalist');
-  if(dl) dl.innerHTML=[...new Set(products.map(p=>p.cat))].map(c=>`<option value="${c}">`).join('');
+  if(dl) dl.innerHTML=categoriasParaDatalist().map(c=>`<option value="${c}">`).join('');
 }
 
 function onPosSearch() {
@@ -1797,7 +1831,16 @@ function renderProductGrid() {
     container.innerHTML = `<div class="empty-state" style="padding:30px 0;text-align:center;color:var(--text3)"><p>${q?'Sin resultados para “'+posSearch+'”':'Sin productos'}</p></div>`;
     return;
   }
-  const cats = [...new Set(matched.map(p => p.cat || 'Sin categoría'))].sort((a,b)=>a.localeCompare(b));
+  // Ordenar según la lista del admin; las categorías que no estén en el admin van después, alfabéticas
+  const adminOrder = getCategoriasAdmin();
+  const presentes = [...new Set(matched.map(p => p.cat || 'Sin categoría'))];
+  const cats = presentes.sort((a, b) => {
+    const ia = adminOrder.indexOf(a), ib = adminOrder.indexOf(b);
+    if (ia !== -1 && ib !== -1) return ia - ib;      // ambas en admin → orden del admin
+    if (ia !== -1) return -1;                          // solo a en admin → primero
+    if (ib !== -1) return 1;                           // solo b en admin → primero
+    return a.localeCompare(b);                          // ninguna → alfabético
+  });
   container.innerHTML = cats.map(cat => {
     const items = matched.filter(p => (p.cat||'Sin categoría') === cat);
     const isOpen = q ? true : openCats.has(cat);   // al buscar, abrir todas las coincidencias
@@ -3246,10 +3289,13 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   setTimeout(() => sincronizarDesdeServidor(true), 3000);
   setTimeout(() => sincronizarCostos(true), 4000);
   setTimeout(() => sincronizarProductos(true), 4500);
+  setTimeout(syncCategoriasAdmin, 1200);   // categorías del admin web (no depende de la PC)
   // ── Reconciliación Firebase SIEMPRE activa (cada 20s, aunque la PC esté apagada) ──
   // Garantiza que todo lo registrado llegue al resto de teléfonos en vivo.
   setInterval(_fbReconcile, 20000);
   window.addEventListener('online', _fbReconcile);
+  // Categorías del admin: refresco de seguridad cada 5 min (lectura pública, sin PC)
+  setInterval(syncCategoriasAdmin, 300000);
   // ── Sync periódico con el Excel: cada 60s cuando el servidor bat está activo ──
   // Sube datos pendientes y baja cambios del Excel automáticamente
   setInterval(() => {
