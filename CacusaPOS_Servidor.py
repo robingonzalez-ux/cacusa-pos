@@ -475,6 +475,43 @@ def escribir_costo(cost):
             ws.cell(row, 8).value = str(cost.get('created', ''))
             wb.save(EXCEL)
 
+def eliminar_costo_en_excel(created):
+    """Borra del Excel la fila de COSTOS cuyo timestamp (col H) coincide con `created`.
+    Renumera la columna A (correlativo) de las filas restantes."""
+    created = str(created).strip()
+    if not created:
+        return False
+    with _excel_lock:
+        wb = openpyxl.load_workbook(EXCEL, keep_vba=True)
+        if 'COSTOS' not in wb.sheetnames:
+            wb.close()
+            return False
+        ws = wb['COSTOS']
+        target = None
+        for row_idx, row in enumerate(ws.iter_rows(min_row=6, values_only=False), start=6):
+            vals = [c.value for c in row]
+            if not any(v is not None for v in vals[:6]):
+                continue
+            created_raw = vals[7] if len(vals) > 7 else None
+            if created_raw not in (None, '') and str(created_raw).strip() == created:
+                target = row_idx
+                break
+        if target is None:
+            wb.close()
+            return False
+        ws.delete_rows(target, 1)
+        # Renumerar correlativo (col A) desde la fila 6
+        n = 1
+        for row_idx, row in enumerate(ws.iter_rows(min_row=6, values_only=False), start=6):
+            vals = [c.value for c in row]
+            if not any(v is not None for v in vals[1:6]):
+                continue
+            ws.cell(row_idx, 1).value = n
+            n += 1
+        wb.save(EXCEL)
+        wb.close()
+        return True
+
 def _costo_id_estable(fecha, tipo, desc, monto):
     """Genera un ID numérico estable para costos ingresados directamente en Excel (sin timestamp)."""
     key = f"{fecha}|{tipo}|{desc}|{round(float(monto or 0), 2)}"
@@ -1042,6 +1079,25 @@ def eliminar_venta():
         return jsonify({'ok': True, 'pdfs_borrados': eliminados})
     except Exception as e:
         if ui_log: ui_log(f"❌  eliminar-venta error: {e}")
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@flask_app.route('/eliminar-costo', methods=['POST', 'OPTIONS'])
+def eliminar_costo():
+    """Borra un costo del Excel para que no reaparezca en la próxima sincronización."""
+    if request.method == 'OPTIONS':
+        return jsonify({'ok': True})
+    data    = request.get_json(force=True)
+    created = str(data.get('created', '')).strip()
+    if not created:
+        return jsonify({'ok': False, 'error': 'Falta created'}), 400
+    try:
+        borrado = eliminar_costo_en_excel(created)
+        hora = datetime.datetime.now().strftime('%H:%M')
+        if ui_log: ui_log(f"🗑️  [{hora}]  Costo {created} eliminado del Excel: {borrado}")
+        return jsonify({'ok': True, 'borrado': borrado})
+    except Exception as e:
+        if ui_log: ui_log(f"❌  eliminar-costo error: {e}")
         return jsonify({'ok': False, 'error': str(e)}), 500
 
 

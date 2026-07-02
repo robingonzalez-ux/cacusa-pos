@@ -214,10 +214,24 @@
     #screen-pos .pos-info { display: flex; gap: 8px; margin-top: 8px; }
     #screen-pos .pos-info .input-field { font-size: 14px; padding: 9px 11px; }
 
-    .cat-tabs { display: flex; gap: 6px; padding: 10px 14px; overflow-x: auto; -webkit-overflow-scrolling: touch; white-space: nowrap; scrollbar-width: none; }
-    .cat-tabs::-webkit-scrollbar { display: none; }
-    .cat-tab { padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1.5px solid var(--border); color: var(--text2); background: transparent; transition: all 0.15s; white-space: nowrap; }
-    .cat-tab.active { border-color: var(--gold); color: var(--gold); background: rgba(201,99,122,0.08); }
+    /* Buscador de productos */
+    .pos-search-wrap { position: relative; padding: 10px 14px 6px; }
+    .pos-search-ico { position: absolute; left: 26px; top: 50%; transform: translateY(-30%); width: 16px; height: 16px; color: var(--text3); pointer-events: none; }
+    #pos-search { width: 100%; box-sizing: border-box; padding: 11px 38px 11px 40px; border: 1.5px solid var(--border); border-radius: 12px; font-size: 14px; outline: none; font-family: inherit; background: var(--card); color: var(--text); }
+    #pos-search:focus { border-color: var(--gold); }
+    #pos-search-clear { position: absolute; right: 26px; top: 50%; transform: translateY(-30%); color: var(--text3); font-size: 15px; cursor: pointer; display: none; }
+    #pos-search-clear.show { display: block; }
+
+    /* Acordeón de categorías */
+    .cat-accordion { padding: 0 14px 8px; }
+    .cat-group { background: var(--card); border: 1px solid var(--border); border-radius: 14px; margin-bottom: 8px; overflow: hidden; }
+    .cat-group-hd { width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 13px 14px; background: none; border: none; cursor: pointer; font-family: inherit; }
+    .cat-group-name { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 700; color: var(--text); }
+    .cat-group-name .cat-dot { width: 8px; height: 8px; border-radius: 4px; }
+    .cat-count { background: var(--card2); border-radius: 99px; padding: 2px 8px; font-size: 11px; font-weight: 700; color: var(--text2); }
+    .cat-chev { color: var(--text3); font-size: 12px; transition: transform 0.2s; }
+    .cat-chev.open { transform: rotate(180deg); }
+    .cat-group-body { border-top: 1px solid var(--border); padding: 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 
     .products-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 0 14px 8px; }
     .product-card { background: var(--card); border: 1.5px solid var(--border); border-radius: 14px; padding: 14px 12px; cursor: pointer; transition: all 0.15s; position: relative; }
@@ -472,8 +486,12 @@
         </div>
       </div>
       <div id="sync-banner">☁️ OneDrive conectado — las ventas se guardan en tu Excel automáticamente</div>
-      <div class="cat-tabs" id="cat-tabs"></div>
-      <div class="products-grid" id="products-grid"></div>
+      <div class="pos-search-wrap">
+        <svg class="pos-search-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input id="pos-search" placeholder="Buscar producto…" oninput="onPosSearch()" autocomplete="off" autocapitalize="none">
+        <span id="pos-search-clear" onclick="clearPosSearch()">✕</span>
+      </div>
+      <div class="cat-accordion" id="cat-accordion"></div>
       <div class="cart-section">
         <div class="cart-header">
           <h3>🛒 Pedido Actual</h3>
@@ -1032,6 +1050,9 @@ function _fbKey(id) { return (id||'').replace(/[.#$[\]\/]/g, '_'); }
 // ════════════════════════════════════════════════════════
 const OB_V='cacusa_ob_ventas', OB_C='cacusa_ob_costos', OB_P='cacusa_ob_prods';
 const TB_V='cacusa_tomb_ventas', TB_C='cacusa_tomb_costos', TB_P='cacusa_tomb_prods';
+// Lápida PERMANENTE de costos borrados (nunca se limpia): impide que el Excel/servidor
+// los vuelva a agregar en sincronizarCostos aunque el borrado en Firebase ya se confirmó.
+const DEL_C='cacusa_costos_del';
 function _obGet(k){ try { return new Set((load(k,[])||[]).map(String)); } catch { return new Set(); } }
 function _obAdd(k,id){ if(id==null) return; const s=_obGet(k); if(!s.has(String(id))){ s.add(String(id)); save(k,[...s]); } }
 function _obDel(k,id){ const s=_obGet(k); if(s.delete(String(id))) save(k,[...s]); }
@@ -1219,9 +1240,11 @@ function _mergeFirebaseCostos(data) {
     }
   }
   const localMap = new Map(costs.map(c => [String(c.created), c]));
+  const borrados = _obGet(DEL_C);
   let changed = false;
   for (const rc of remoteCosts) {
     if (rc.deleted) continue;
+    if (borrados.has(String(rc.created))) continue;   // respetar borrado local permanente
     if (!localMap.has(String(rc.created))) {
       costs.push(rc); changed = true;
     } else {
@@ -1522,9 +1545,11 @@ async function sincronizarCostos(silencioso = true) {
     if (!data2.ok || !Array.isArray(data2.costos)) return;
 
     const localMap = new Map(costs.map(c => [String(c.created), c]));
+    const borrados = _obGet(DEL_C);   // costos que el usuario eliminó (no re-importar)
     let added = 0, updated = 0;
     for (const sc of data2.costos) {
       if (!sc.created) continue;
+      if (borrados.has(String(sc.created))) continue;   // ignorar los que ya se borraron
       if (!localMap.has(String(sc.created))) {
         costs.push(sc); localMap.set(String(sc.created), sc); added++;
         fbGuardarCosto(sc); // propagar al otro dispositivo vía Firebase
@@ -1729,34 +1754,68 @@ function closeModalIfBg(e,id) { if(e.target===e.currentTarget) closeModal(id); }
 // ════════════════════════════════════════════════════════
 //  POS
 // ════════════════════════════════════════════════════════
+let posSearch = '';
+let openCats = new Set();
+
 function renderPOS() {
   const d = new Date();
   const days=['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
   const months=['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
   document.getElementById('pos-date').textContent=`${days[d.getDay()]}, ${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
-  const cats=['Todos',...new Set(products.filter(p=>p.active).map(p=>p.cat))];
-  document.getElementById('cat-tabs').innerHTML=cats.map(c=>`<div class="cat-tab${c===activeCat?' active':''}" data-cat="${c}" onclick="filterCat(this)">${c}</div>`).join('');
   renderProductGrid();
   const dl=document.getElementById('cats-datalist');
   if(dl) dl.innerHTML=[...new Set(products.map(p=>p.cat))].map(c=>`<option value="${c}">`).join('');
 }
 
-function filterCat(el) {
-  document.querySelectorAll('.cat-tab').forEach(t=>t.classList.remove('active'));
-  el.classList.add('active'); activeCat=el.dataset.cat; renderProductGrid();
+function onPosSearch() {
+  posSearch = (document.getElementById('pos-search').value || '').trim().toLowerCase();
+  document.getElementById('pos-search-clear').classList.toggle('show', !!posSearch);
+  renderProductGrid();
+}
+function clearPosSearch() {
+  posSearch = '';
+  const inp = document.getElementById('pos-search');
+  if (inp) inp.value = '';
+  document.getElementById('pos-search-clear').classList.remove('show');
+  renderProductGrid();
+}
+function toggleCatPOS(el) {
+  const cat = el.dataset.cat;
+  if (openCats.has(cat)) openCats.delete(cat); else openCats.add(cat);
+  renderProductGrid();
 }
 
 function renderProductGrid() {
-  const filtered=products.filter(p=>p.active&&(activeCat==='Todos'||p.cat===activeCat));
-  const grid=document.getElementById('products-grid');
-  if(!filtered.length){grid.innerHTML='<div class="empty-state" style="grid-column:span 2"><p>Sin productos</p></div>';return;}
-  grid.innerHTML=filtered.map(p=>`
-    <div class="product-card" onclick="addToCart('${p.id}')">
-      <div class="cat-dot" style="background:${catColor(p.cat)};"></div>
-      <div class="add-hint"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></div>
-      <h4>${p.name}</h4>
-      <div class="price">${fmt(p.price)}</div>
-    </div>`).join('');
+  const container = document.getElementById('cat-accordion');
+  if (!container) return;
+  const active = products.filter(p => p.active);
+  const q = posSearch;
+  const matched = q
+    ? active.filter(p => (p.name||'').toLowerCase().includes(q) || (p.cat||'').toLowerCase().includes(q))
+    : active;
+  if (!matched.length) {
+    container.innerHTML = `<div class="empty-state" style="padding:30px 0;text-align:center;color:var(--text3)"><p>${q?'Sin resultados para “'+posSearch+'”':'Sin productos'}</p></div>`;
+    return;
+  }
+  const cats = [...new Set(matched.map(p => p.cat || 'Sin categoría'))].sort((a,b)=>a.localeCompare(b));
+  container.innerHTML = cats.map(cat => {
+    const items = matched.filter(p => (p.cat||'Sin categoría') === cat);
+    const isOpen = q ? true : openCats.has(cat);   // al buscar, abrir todas las coincidencias
+    const cards = items.map(p => `
+      <div class="product-card" onclick="addToCart('${p.id}')">
+        <div class="add-hint"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></div>
+        <h4>${p.name}</h4>
+        <div class="price">${fmt(p.price)}</div>
+      </div>`).join('');
+    return `
+      <div class="cat-group">
+        <button class="cat-group-hd" data-cat="${cat}" onclick="toggleCatPOS(this)">
+          <span class="cat-group-name"><span class="cat-dot" style="background:${catColor(cat)}"></span>${cat}<span class="cat-count">${items.length}</span></span>
+          <span class="cat-chev${isOpen?' open':''}">▼</span>
+        </button>
+        ${isOpen ? `<div class="cat-group-body">${cards}</div>` : ''}
+      </div>`;
+  }).join('');
 }
 
 // ════════════════════════════════════════════════════════
@@ -2339,7 +2398,18 @@ function deleteCost(idx) {
   if(!confirm('¿Eliminar?')) return;
   const c = costs[idx];
   costs.splice(idx,1);save('cacusa_costs',costs);
-  if (c && c.created) fbEliminarCosto(c.created);
+  if (c && c.created) {
+    _obAdd(DEL_C, c.created);      // lápida permanente: no volver a importarlo del Excel
+    fbEliminarCosto(c.created);    // soft-delete en Firebase (otros teléfonos)
+    // Borrarlo también del Excel vía el servidor (si está conectado), para que no reaparezca
+    const pc = getPCUrl();
+    if (pc) {
+      fetch(pc + '/eliminar-costo', {
+        method:'POST', headers:{'Content-Type':'application/json','ngrok-skip-browser-warning':'1'},
+        body: JSON.stringify({ created: c.created }), signal: AbortSignal.timeout(8000)
+      }).catch(()=>{});
+    }
+  }
   renderCosts();showToast('Eliminado','error');
 }
 
