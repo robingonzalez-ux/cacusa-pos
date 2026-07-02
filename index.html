@@ -743,8 +743,12 @@
         </div>
       </div>
       <div class="switch-row">
-        <div><div class="switch-label">Cliente Reseller</div><div class="switch-sub">Exento de impuesto</div></div>
+        <div><div class="switch-label">Cliente Reseller</div><div class="switch-sub">Solo para registro interno — el cliente sigue pagando impuesto</div></div>
         <label class="toggle"><input type="checkbox" id="checkout-reseller" onchange="recalcCheckout()"><div class="toggle-slider"></div></label>
+      </div>
+      <div class="switch-row">
+        <div><div class="switch-label">Exonerar impuesto</div><div class="switch-sub">El cliente no paga impuesto en esta venta</div></div>
+        <label class="toggle"><input type="checkbox" id="checkout-notax" onchange="recalcCheckout()"><div class="toggle-slider"></div></label>
       </div>
       <div class="input-group" style="margin-top:12px;">
         <label class="input-label">Cargo de Envío al Cliente ($)</label>
@@ -1937,6 +1941,7 @@ function openCheckout(type) {
   document.getElementById('checkout-shipping').value='0';
   document.getElementById('checkout-usps').value='0';
   document.getElementById('checkout-reseller').checked=false;
+  document.getElementById('checkout-notax').checked=false;
   document.querySelectorAll('.pay-btn').forEach(b=>b.classList.remove('selected'));
   document.querySelector('[data-pay="Efectivo"]').classList.add('selected');
   const sqBtn = document.getElementById('btn-square');
@@ -1959,9 +1964,10 @@ function recalcCheckout() {
   const sub=cart.reduce((s,i)=>s+i.price*i.qty,0);
   const dije=dijeQty*5;
   const ship=parseFloat(document.getElementById('checkout-shipping').value)||0;
-  const reseller=document.getElementById('checkout-reseller').checked;
+  // Reseller es solo etiqueta de registro interno — NO afecta el impuesto (el cliente igual paga).
+  const noTax=document.getElementById('checkout-notax').checked;
   const {state,rate}=getTaxInfo();
-  const tax=reseller?0:(sub+dije)*(rate/100);
+  const tax=noTax?0:(sub+dije)*(rate/100);
   const payEl=document.querySelector('.pay-btn.selected');
   const pay=payEl?payEl.dataset.pay:'Efectivo';
   const ccFee=pay==='Tarjeta'?Math.round((sub+dije+tax)*0.04*100)/100:0;
@@ -1971,7 +1977,7 @@ function recalcCheckout() {
   document.getElementById('co-ship-row').style.display=ship?'flex':'none';
   document.getElementById('co-ship').textContent=fmt(ship);
   document.getElementById('co-tax').textContent=fmt(tax);
-  document.getElementById('co-tax-label').textContent=reseller?'Impuesto (Reseller)':(state?`Impuesto ${state} ${rate}%`:'Impuesto');
+  document.getElementById('co-tax-label').textContent=noTax?'Impuesto (Exonerado)':(state?`Impuesto ${state} ${rate}%`:'Impuesto');
   document.getElementById('co-cc-row').style.display=ccFee?'flex':'none';
   document.getElementById('co-cc-fee').textContent=fmt(ccFee);
   document.getElementById('co-total').textContent=fmt(sub+dije+tax+ship+ccFee);
@@ -1981,13 +1987,14 @@ async function confirmSale() {
   const client=document.getElementById('pos-client').value.trim();
   const payEl=document.querySelector('.pay-btn.selected');
   const pay=payEl?payEl.dataset.pay:'Efectivo';
-  const reseller=document.getElementById('checkout-reseller').checked;
+  const reseller=document.getElementById('checkout-reseller').checked;   // solo etiqueta interna
+  const noTax=document.getElementById('checkout-notax').checked;
   const shipping=parseFloat(document.getElementById('checkout-shipping').value)||0;
   const usps=parseFloat(document.getElementById('checkout-usps').value)||0;
   const dije=dijeQty*5;
   const {state,rate}=getTaxInfo();
   const sub=cart.reduce((s,i)=>s+i.price*i.qty,0);
-  const tax=reseller?0:(sub+dije)*(rate/100);
+  const tax=noTax?0:(sub+dije)*(rate/100);
   const ccFee=pay==='Tarjeta'?Math.round((sub+dije+tax)*0.04*100)/100:0;
   const total=sub+dije+tax+shipping+ccFee;
 
@@ -1995,7 +2002,7 @@ async function confirmSale() {
     id:nextId(currentDocType), type:currentDocType, client, date:today(),
     items:JSON.parse(JSON.stringify(cart)), dije, dijeQty, subtotal:sub, tax, taxRate:rate,
     taxState:state, shipping, usps, ccFee, total, payMethod:pay,
-    reseller:reseller?'SÍ':'NO', status:'Pendiente', seller:_vendedorActual(), created:Date.now()
+    reseller:reseller?'SÍ':'NO', taxExempt:noTax?'SÍ':'NO', status:'Pendiente', seller:_vendedorActual(), created:Date.now()
   };
 
   sales.unshift(sale); save('cacusa_sales', sales);
@@ -2045,6 +2052,7 @@ function renderHist() {
         <span class="badge ${sc}" onclick="cycleStatus(event,'${s.id}')">${s.status}</span>
         <span class="badge badge-gray">${s.payMethod||'—'}</span>
         ${s.reseller==='SÍ'?'<span class="badge badge-blue">Reseller</span>':''}
+        ${s.taxExempt==='SÍ'?'<span class="badge badge-gold">Sin impuesto</span>':''}
         ${s.seller?`<span class="badge badge-gray">👤 ${s.seller}</span>`:''}
       </div>
       <div class="sale-foot"><div class="sale-items-preview">${preview}</div><div class="sale-total">${fmt(s.total)}</div></div>
@@ -2078,6 +2086,7 @@ function openSaleDetail(id) {
       <span class="badge badge-gray">${s.type==='FAC'?'Factura':'Orden'}</span>
       <span class="badge badge-gray">${s.payMethod}</span>
       ${s.reseller==='SÍ'?'<span class="badge badge-blue">Reseller</span>':''}
+      ${s.taxExempt==='SÍ'?'<span class="badge badge-gold">Sin impuesto</span>':''}
     </div>
     <div class="card" style="margin-bottom:12px;">
       <div class="total-row"><span>Cliente</span><span style="font-weight:600;">${esc(s.client)}</span></div>
@@ -2536,13 +2545,14 @@ async function cobrarConSquare() {
   }
   // Guardar venta como Pendiente primero
   const client   = document.getElementById('pos-client').value.trim();
-  const reseller = document.getElementById('checkout-reseller').checked;
+  const reseller = document.getElementById('checkout-reseller').checked;   // solo etiqueta interna
+  const noTax    = document.getElementById('checkout-notax').checked;
   const shipping = parseFloat(document.getElementById('checkout-shipping').value) || 0;
   const usps     = parseFloat(document.getElementById('checkout-usps').value) || 0;
   const dije     = dijeQty * 5;
   const { state, rate } = getTaxInfo();
   const sub  = cart.reduce((s, i) => s + i.price * i.qty, 0);
-  const tax  = reseller ? 0 : (sub + dije) * (rate / 100);
+  const tax  = noTax ? 0 : (sub + dije) * (rate / 100);
   const ccFee = Math.round((sub + dije + tax) * 0.04 * 100) / 100;
   const total = sub + dije + tax + shipping + ccFee;
   const saleId = nextId(currentDocType);
@@ -2552,7 +2562,7 @@ async function cobrarConSquare() {
     items: JSON.parse(JSON.stringify(cart)), dije, dijeQty,
     subtotal: sub, tax, taxRate: rate, taxState: state,
     shipping, usps, ccFee, total, payMethod: 'Tarjeta',
-    reseller: reseller ? 'SÍ' : 'NO', status: 'Pendiente',
+    reseller: reseller ? 'SÍ' : 'NO', taxExempt: noTax ? 'SÍ' : 'NO', status: 'Pendiente',
     seller: _vendedorActual(), squarePending: true, created: Date.now()
   };
   sales.unshift(sale);
@@ -2629,13 +2639,14 @@ async function generarLinkSquare() {
   if (!sqLocation) { showToast('Configura tu Square Location ID en Ajustes','error'); return; }
 
   const client   = document.getElementById('pos-client').value.trim();
-  const reseller = document.getElementById('checkout-reseller').checked;
+  const reseller = document.getElementById('checkout-reseller').checked;   // solo etiqueta interna
+  const noTax    = document.getElementById('checkout-notax').checked;
   const shipping = parseFloat(document.getElementById('checkout-shipping').value) || 0;
   const usps     = parseFloat(document.getElementById('checkout-usps').value) || 0;
   const dije     = dijeQty * 5;
   const { state, rate } = getTaxInfo();
   const sub    = cart.reduce((s, i) => s + i.price * i.qty, 0);
-  const tax    = reseller ? 0 : (sub + dije) * (rate / 100);
+  const tax    = noTax ? 0 : (sub + dije) * (rate / 100);
   const ccFee  = Math.round((sub + dije + tax) * 0.04 * 100) / 100;
   const total  = sub + dije + tax + shipping + ccFee;
   const saleId = nextId(currentDocType);
@@ -2646,7 +2657,7 @@ async function generarLinkSquare() {
     items: JSON.parse(JSON.stringify(cart)), dije, dijeQty,
     subtotal: sub, tax, taxRate: rate, taxState: state,
     shipping, usps, ccFee, total,
-    payMethod: 'Link Square', reseller: reseller ? 'SÍ' : 'NO',
+    payMethod: 'Link Square', reseller: reseller ? 'SÍ' : 'NO', taxExempt: noTax ? 'SÍ' : 'NO',
     status: 'Pendiente', created: Date.now()
   };
   sales.unshift(sale);
