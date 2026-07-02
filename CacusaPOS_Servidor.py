@@ -668,7 +668,8 @@ def guardar_producto():
 ADMIN_PRODUCTS_URL = 'https://cacusabytaitus.com/data/products.json'
 
 def sincronizar_desde_admin():
-    """Descarga products.json del sitio web y los escribe en la hoja PRODUCTOS del Excel."""
+    """Descarga products.json del sitio web y los escribe en la hoja PRODUCTOS del Excel.
+    Abre y guarda el Excel UNA sola vez para todos los productos (no una vez por producto)."""
     import json as _json
     try:
         req = urllib.request.Request(
@@ -682,26 +683,52 @@ def sincronizar_desde_admin():
     web_prods = data.get('products', []) if isinstance(data, dict) else data
     if not isinstance(web_prods, list):
         return 0, "Formato inesperado en products.json"
-    count = 0
+
+    prods = []
     for p in web_prods:
         pid = p.get('id')
         if pid is None:
             continue
         pid_str = str(pid) if str(pid).startswith('P') else f"P{pid}"
-        prod = {
+        name = str(p.get('name') or '').strip()
+        if not name:
+            continue
+        prods.append({
             'id':     pid_str,
-            'name':   str(p.get('name') or '').strip(),
+            'name':   name,
             'cat':    str(p.get('category') or '').strip(),
             'price':  float(p.get('price') or 0),
             'active': bool(p.get('available', True)),
-        }
-        if not prod['name']:
-            continue
-        try:
-            escribir_producto(prod)
+        })
+    if not prods:
+        return 0, None
+
+    count = 0
+    with _excel_lock:
+        wb = openpyxl.load_workbook(EXCEL, keep_vba=True)
+        if 'PRODUCTOS' not in wb.sheetnames:
+            return 0, "El Excel no tiene hoja PRODUCTOS"
+        ws = wb['PRODUCTOS']
+        # Mapa id → fila existente (una sola pasada)
+        filas = {}
+        for row in ws.iter_rows(min_row=5, values_only=False):
+            v = row[1].value
+            if v not in (None, ''):
+                filas[str(v).strip()] = row[0].row
+        siguiente = max(ultima_fila_con_dato(ws, 2, 5) + 1, 5)
+        for prod in prods:
+            fila = filas.get(prod['id'])
+            if fila is None:
+                fila = siguiente
+                filas[prod['id']] = fila
+                siguiente += 1
+            ws.cell(fila, 2).value = prod['id']
+            ws.cell(fila, 3).value = prod['name']
+            ws.cell(fila, 4).value = prod['cat']
+            ws.cell(fila, 5).value = round(prod['price'], 2)
+            ws.cell(fila, 7).value = 'Sí' if prod['active'] else 'No'
             count += 1
-        except Exception:
-            pass
+        wb.save(EXCEL)
     return count, None
 
 @flask_app.route('/sync-admin-productos', methods=['GET', 'POST', 'OPTIONS'])
@@ -1062,6 +1089,9 @@ def convertir_venta():
     sale   = data.get('sale', {})
     if not old_id or not new_id:
         return jsonify({'ok': False, 'error': 'Faltan oldId o newId'}), 400
+    # Evitar factura duplicada si la app reintenta la conversión
+    if new_id in IDS_REGISTRADOS:
+        return jsonify({'ok': True, 'newId': new_id, 'msg': 'ya_registrado'})
     try:
         actualizar_estado_en_excel(old_id, 'OC', 'Eliminado')
         sale['id']   = new_id
