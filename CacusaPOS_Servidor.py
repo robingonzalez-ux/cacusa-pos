@@ -632,7 +632,9 @@ def recibir_venta():
     if request.method == 'OPTIONS':
         return jsonify({'ok': True})
     sale = request.get_json(force=True)
-    sale_id = sale.get('id', '')
+    sale_id = str(sale.get('id', '')).strip()
+    if not sale_id:
+        return jsonify({'ok': False, 'error': 'Venta sin id'}), 400
 
     # Evitar duplicados
     if sale_id in IDS_REGISTRADOS:
