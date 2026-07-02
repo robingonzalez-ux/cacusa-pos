@@ -2646,19 +2646,28 @@ async function autoFetchSquareLocation() {
   const statusEl = document.getElementById('square-location-status');
   if (statusEl) { statusEl.textContent = '⏳ Buscando locations…'; statusEl.style.color = 'var(--text3)'; }
 
+  // Square NO permite llamadas directas desde el navegador (sin CORS) — siempre da "Load failed".
+  // Por eso se pide vía el servidor de la PC, que sí puede hablar con Square server-to-server.
+  const pcUrl = getPCUrl();
+  if (!pcUrl) {
+    if (statusEl) {
+      statusEl.textContent = '⚠️ Conecta el servidor de la PC arriba (URL ngrok + token) para usar Auto, o pega el Location ID a mano desde squareup.com/dashboard/locations';
+      statusEl.style.color = 'var(--red)';
+    }
+    return;
+  }
+
   try {
-    // Llamada DIRECTA a Square — no requiere la PC
-    const resp = await fetch('https://connect.squareup.com/v2/locations', {
-      headers: {
-        'Authorization':  `Bearer ${token}`,
-        'Square-Version': '2024-01-17'
-      }
+    const resp = await fetch(pcUrl + '/square-locations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': '1' },
+      body: JSON.stringify({ access_token: token }),
+      signal: AbortSignal.timeout(10000)
     });
     const result = await resp.json();
 
-    if (!resp.ok) {
-      const errMsg = (result.errors || [{}])[0]?.detail || 'Token incorrecto';
-      if (statusEl) { statusEl.textContent = `❌ ${errMsg}`; statusEl.style.color = 'var(--red)'; }
+    if (!result.ok) {
+      if (statusEl) { statusEl.textContent = `❌ ${result.error || 'Token incorrecto'}`; statusEl.style.color = 'var(--red)'; }
       return;
     }
 
