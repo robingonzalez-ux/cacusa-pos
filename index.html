@@ -1722,23 +1722,28 @@ function catColor(cat) {
   const map = { Cadenas:'#C9637A', Pulseras:'#9B7CBA', Anillos:'#5585E0', Aretes:'#E07A9B', ENVIO:'#E05555' };
   return map[cat] || '#B07090';
 }
+// Escapa texto de usuario (cliente, producto, costo) antes de insertarlo en innerHTML
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
+}
 function today() { const d=new Date(); return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`; }
 function nextId(type) {
   const prefix  = type === 'FAC' ? 'FAC' : 'OC';
   const year    = new Date().getFullYear();
   const yearStr = String(year);
-  // Buscar el número más alto ya existente para ese tipo y año — evita duplicados si se borran ventas
+  // Inicial del vendedor (R/T) en el número: cada vendedor tiene su propia secuencia,
+  // así dos teléfonos vendiendo el mismo día sin sincronizar nunca generan el mismo ID
+  // (antes ambos podían llegar a FAC-2026-005 y una de las dos ventas se perdía).
+  const initial = (_sessionUser || '').charAt(0).toUpperCase() || 'X';
+  const re = new RegExp(`^${prefix}-${yearStr}-${initial}(\\d+)$`);
   let maxNum = 0;
   for (const s of sales) {
     if (s.type === type && s.id) {
-      const parts = s.id.split('-');
-      if (parts.length === 3 && parts[1] === yearStr) {
-        const n = parseInt(parts[2], 10);
-        if (!isNaN(n) && n > maxNum) maxNum = n;
-      }
+      const m = re.exec(s.id);
+      if (m) { const n = parseInt(m[1], 10); if (!isNaN(n) && n > maxNum) maxNum = n; }
     }
   }
-  return `${prefix}-${year}-${String(maxNum + 1).padStart(3,'0')}`;
+  return `${prefix}-${year}-${initial}${String(maxNum + 1).padStart(3,'0')}`;
 }
 function getTaxInfo() {
   const val = document.getElementById('pos-state')?.value||'';
@@ -1847,13 +1852,13 @@ function renderProductGrid() {
     const cards = items.map(p => `
       <div class="product-card" onclick="addToCart('${p.id}')">
         <div class="add-hint"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></div>
-        <h4>${p.name}</h4>
+        <h4>${esc(p.name)}</h4>
         <div class="price">${fmt(p.price)}</div>
       </div>`).join('');
     return `
       <div class="cat-group">
-        <button class="cat-group-hd" data-cat="${cat}" onclick="toggleCatPOS(this)">
-          <span class="cat-group-name"><span class="cat-dot" style="background:${catColor(cat)}"></span>${cat}<span class="cat-count">${items.length}</span></span>
+        <button class="cat-group-hd" data-cat="${esc(cat)}" onclick="toggleCatPOS(this)">
+          <span class="cat-group-name"><span class="cat-dot" style="background:${catColor(cat)}"></span>${esc(cat)}<span class="cat-count">${items.length}</span></span>
           <span class="cat-chev${isOpen?' open':''}">▼</span>
         </button>
         ${isOpen ? `<div class="cat-group-body">${cards}</div>` : ''}
@@ -1894,7 +1899,7 @@ function renderCart() {
   navBadge.textContent=qty; navBadge.style.display='flex';
   items.innerHTML=cart.map((item,idx)=>`
     <div class="cart-item">
-      <div class="item-info"><div class="item-name">${item.name}</div><div class="item-price">${fmt(item.price)} c/u</div></div>
+      <div class="item-info"><div class="item-name">${esc(item.name)}</div><div class="item-price">${fmt(item.price)} c/u</div></div>
       <div class="qty-controls">
         <div class="qty-btn" onclick="changeQty(${idx},-1)">−</div>
         <div class="qty-val">${item.qty}</div>
@@ -2018,7 +2023,9 @@ function filterHist(el) {
 function renderHist() {
   // Solo las Facturas (FAC) cuentan en los totales — las Órdenes de Compra no son ventas
   const facs=sales.filter(x=>x.type==='FAC');
-  document.getElementById('stat-total').textContent=fmt(facs.reduce((s,x)=>s+x.total,0));
+  // Total Vendido excluye Canceladas — una factura cancelada no es dinero real
+  const facsValidas=facs.filter(x=>x.status!=='Cancelado');
+  document.getElementById('stat-total').textContent=fmt(facsValidas.reduce((s,x)=>s+x.total,0));
   document.getElementById('stat-docs').textContent=facs.length;
   document.getElementById('stat-pend').textContent=facs.filter(x=>x.status==='Pendiente').length;
   document.getElementById('stat-paid').textContent=facs.filter(x=>x.status==='Pagado').length;
@@ -2029,10 +2036,10 @@ function renderHist() {
   list.innerHTML=filtered.map(s=>{
     const sc=s.status==='Pagado'?'badge-green':s.status==='Cancelado'?'badge-red':'badge-gold';
     const tc=s.type==='FAC'?'badge-blue':'badge-gray';
-    const preview=s.items.slice(0,2).map(i=>i.name).join(', ')+(s.items.length>2?'...':'');
+    const preview=esc(s.items.slice(0,2).map(i=>i.name).join(', ')+(s.items.length>2?'...':''));
     return `<div class="sale-card" onclick="openSaleDetail('${s.id}')">
       <div class="sale-head"><div class="sale-id">${s.id}</div><div class="sale-date">${s.date}</div></div>
-      <div class="sale-client">${s.client}</div>
+      <div class="sale-client">${esc(s.client)}</div>
       <div class="sale-meta">
         <span class="badge ${tc}">${s.type==='FAC'?'Factura':'Orden'}</span>
         <span class="badge ${sc}" onclick="cycleStatus(event,'${s.id}')">${s.status}</span>
@@ -2049,7 +2056,9 @@ function cycleStatus(e,id) {
   e.stopPropagation();
   const s=sales.find(x=>x.id===id); if(!s) return;
   const st=['Pendiente','Pagado','Cancelado'];
-  s.status=st[(st.indexOf(s.status)+1)%st.length];
+  const next=st[(st.indexOf(s.status)+1)%st.length];
+  if(next==='Cancelado' && !confirm(`¿Marcar ${s.id} como Cancelado?\nSe descontará de "Total Vendido".`)) return;
+  s.status=next;
   save('cacusa_sales',sales); renderHist(); showToast('Estado: '+s.status,'success');
   fbActualizar(id, {status: s.status});
   // Sincronizar con servidor
@@ -2071,15 +2080,15 @@ function openSaleDetail(id) {
       ${s.reseller==='SÍ'?'<span class="badge badge-blue">Reseller</span>':''}
     </div>
     <div class="card" style="margin-bottom:12px;">
-      <div class="total-row"><span>Cliente</span><span style="font-weight:600;">${s.client}</span></div>
+      <div class="total-row"><span>Cliente</span><span style="font-weight:600;">${esc(s.client)}</span></div>
       <div class="total-row"><span>Fecha</span><span>${s.date}</span></div>
-      ${s.seller?`<div class="total-row"><span>Registró</span><span>👤 ${s.seller}</span></div>`:''}
+      ${s.seller?`<div class="total-row"><span>Registró</span><span>👤 ${esc(s.seller)}</span></div>`:''}
       ${s.taxState?`<div class="total-row"><span>Estado</span><span>${s.taxState} ${s.taxRate}%</span></div>`:''}
     </div>
     <div class="section-title" style="padding:0 0 8px;">Productos</div>
     <div class="card" style="margin-bottom:12px;padding:0;overflow:hidden;">
       ${s.items.map(i=>`<div style="display:flex;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--border);">
-        <div><div style="font-size:13px;font-weight:500;">${i.name}</div><div style="font-size:11px;color:var(--text2);">${i.qty} × ${fmt(i.price)}</div></div>
+        <div><div style="font-size:13px;font-weight:500;">${esc(i.name)}</div><div style="font-size:11px;color:var(--text2);">${i.qty} × ${fmt(i.price)}</div></div>
         <div style="font-size:14px;font-weight:700;color:var(--gold);">${fmt(i.price*i.qty)}</div>
       </div>`).join('')}
       ${s.dije?`<div style="display:flex;justify-content:space-between;padding:10px 14px;"><span style="font-size:13px;">Dijes extra (${s.dijeQty||1} × $5.00)</span><span style="font-size:14px;font-weight:700;color:var(--gold);">+${fmt(s.dije)}</span></div>`:''}
@@ -2337,10 +2346,10 @@ function renderProds() {
   let lastCat='';
   document.getElementById('prod-list').innerHTML=sorted.map(p=>{
     let h='';
-    if(p.cat!==lastCat){lastCat=p.cat;h=`<div class="section-title" style="padding:10px 14px 4px;">${p.cat}</div>`;}
+    if(p.cat!==lastCat){lastCat=p.cat;h=`<div class="section-title" style="padding:10px 14px 4px;">${esc(p.cat)}</div>`;}
     return `${h}<div class="product-list-item${p.active?'':' inactive-prod'}" onclick="editProduct('${p.id}')">
       <div class="cat-dot-lg" style="background:${catColor(p.cat)};"></div>
-      <div class="prod-info"><div class="prod-name">${p.name}</div><div class="prod-cat">${p.id}${!p.active?' · INACTIVO':''}</div></div>
+      <div class="prod-info"><div class="prod-name">${esc(p.name)}</div><div class="prod-cat">${p.id}${!p.active?' · INACTIVO':''}</div></div>
       <div class="prod-price">${fmt(p.price)}</div>
     </div>`;
   }).join('');
@@ -2421,8 +2430,8 @@ function renderCosts() {
   list.innerHTML=costs.map((c,idx)=>`
     <div class="cost-card">
       <div class="cost-head"><span class="cost-type" style="color:${colors[c.type]||'#B07090'};">${c.type}</span><span class="cost-date">${c.date}</span></div>
-      <div class="cost-desc">${c.desc}</div>
-      <div class="cost-meta"><div class="cost-amount">-${fmt(c.amount)}</div>${c.provider?`<div class="cost-prov">· ${c.provider}</div>`:''}${c.createdBy?`<div class="cost-prov">· 👤 ${c.createdBy}</div>`:''}<div style="flex:1;"></div><div class="btn btn-sm btn-danger" onclick="deleteCost(${idx})">×</div></div>
+      <div class="cost-desc">${esc(c.desc)}</div>
+      <div class="cost-meta"><div class="cost-amount">-${fmt(c.amount)}</div>${c.provider?`<div class="cost-prov">· ${esc(c.provider)}</div>`:''}${c.createdBy?`<div class="cost-prov">· 👤 ${esc(c.createdBy)}</div>`:''}<div style="flex:1;"></div><div class="btn btn-sm btn-danger" onclick="deleteCost(${idx})">×</div></div>
     </div>`).join('');
 }
 
