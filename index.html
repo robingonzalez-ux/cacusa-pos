@@ -1257,6 +1257,8 @@ function _migrarCostosAFirebase() {
 //  FIREBASE — PRODUCTOS (sync catálogo entre dispositivos)
 // ════════════════════════════════════════════════════════
 const _FB_PRODS_URL = 'https://cacusa-pos-default-rtdb.firebaseio.com/cacusa_productos';
+// Worker de Cloudflare (siempre encendido) — usado para lo que Square bloquea por CORS en el navegador
+const ADMIN_WORKER_URL = 'https://cacusa-admin.facturacioncacusa.workers.dev';
 
 // ── Firebase Auth (email/password + refresh) ─────────────────────────────────
 const _FB_AUTH_KEY = 'AIzaSyDwEVeHU0mwSekHbrKM8EjBgn4HSM3zZfM';
@@ -2535,33 +2537,28 @@ async function generarLinkSquare() {
   showToast('Generando link de pago Square…', 'info');
 
   try {
-    // Llamada DIRECTA a la API de Square desde el iPhone — no requiere la PC
-    const resp = await fetch('https://connect.squareup.com/v2/online-checkout/payment-links', {
+    // Square no responde CORS a llamadas de navegador — se pide vía el worker de Cloudflare
+    const resp = await fetch(ADMIN_WORKER_URL + '/square/payment-link', {
       method: 'POST',
-      headers: {
-        'Authorization':  `Bearer ${sqToken}`,
-        'Content-Type':   'application/json',
-        'Square-Version': '2024-01-17'
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        access_token:    sqToken,
+        location_id:     sqLocation,
         idempotency_key: saleId,
-        quick_pay: {
-          name:        `CACUSA ${saleId} — ${client}`,
-          price_money: { amount: Math.round(total * 100), currency: 'USD' },
-          location_id: sqLocation
-        }
-      })
+        name:            `CACUSA ${saleId} — ${client}`,
+        amount_cents:    Math.round(total * 100)
+      }),
+      signal: AbortSignal.timeout(10000)
     });
 
     const result = await resp.json();
 
-    if (!resp.ok) {
-      const errMsg = (result.errors || [{}])[0]?.detail || JSON.stringify(result);
-      showToast(`Error Square: ${errMsg}`, 'error');
+    if (!result.ok) {
+      showToast(`Error Square: ${result.error || 'desconocido'}`, 'error');
       return;
     }
 
-    const url = result.payment_link?.url;
+    const url = result.url;
     if (url) {
       mostrarLinkSquare(url, saleId, total);
       syncVentaWifi(sale);
@@ -2647,20 +2644,11 @@ async function autoFetchSquareLocation() {
   if (statusEl) { statusEl.textContent = '⏳ Buscando locations…'; statusEl.style.color = 'var(--text3)'; }
 
   // Square NO permite llamadas directas desde el navegador (sin CORS) — siempre da "Load failed".
-  // Por eso se pide vía el servidor de la PC, que sí puede hablar con Square server-to-server.
-  const pcUrl = getPCUrl();
-  if (!pcUrl) {
-    if (statusEl) {
-      statusEl.textContent = '⚠️ Conecta el servidor de la PC arriba (URL ngrok + token) para usar Auto, o pega el Location ID a mano desde squareup.com/dashboard/locations';
-      statusEl.style.color = 'var(--red)';
-    }
-    return;
-  }
-
+  // Se pide vía el worker de Cloudflare (siempre encendido, no depende de la PC).
   try {
-    const resp = await fetch(pcUrl + '/square-locations', {
+    const resp = await fetch(ADMIN_WORKER_URL + '/square/locations', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': '1' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ access_token: token }),
       signal: AbortSignal.timeout(10000)
     });
