@@ -210,12 +210,14 @@ def escribir_venta(sale):
             ws.cell(row, 12).value = tax_label
             ws.cell(row, 13).value = ''
             ws.cell(row, 14).value = items_str
-            ws.cell(row, 15).value = sale.get('seller', '')   # col O: vendedor (trazabilidad)
-            if not ws.cell(5, 15).value:
-                ws.cell(5, 15).value = 'Vendedor'             # encabezado si está vacío
+            # OJO: col O (15) ya tenía el encabezado "FAC REF" (referencia a la factura si se
+            # convierte) — NO se toca, para no pisar ese uso. Vendedor se movió a col Q.
             ws.cell(row, 16).value = sale.get('taxExempt', 'NO')  # col P: exonerado de impuesto
             if not ws.cell(5, 16).value:
                 ws.cell(5, 16).value = 'Exonerado'
+            ws.cell(row, 17).value = sale.get('seller', '')   # col Q: vendedor (trazabilidad)
+            if not ws.cell(5, 17).value:
+                ws.cell(5, 17).value = 'Vendedor'
 
         wb.save(EXCEL)
 
@@ -1002,8 +1004,8 @@ def leer_ventas_de_excel():
         # ── Hoja ORDENES (OC) ──
         # Col: A=num, B=id, C=fecha, D=cliente, E=status,
         #      F=subtotal, G=tax, H=total, I=payMethod,
-        #      J=shipping, K=usps, L=tax_lbl, M=vacío,
-        #      N=items_str, O=vendedor, P=exonerado
+        #      J=shipping, K=usps, L=tax_lbl, M=PDF, N=items_str,
+        #      O=FAC REF (no tocar — preexistente), P=exonerado, Q=vendedor
         if 'ORDENES' in wb.sheetnames:
             for row in wb['ORDENES'].iter_rows(min_row=6, values_only=True):
                 sid = row[1]
@@ -1035,8 +1037,8 @@ def leer_ventas_de_excel():
                     'shipping':  round(float(row[9]  or 0), 2),
                     'usps':      round(float(row[10] or 0), 2),
                     'taxState':  ts,  'taxRate': tr,
-                    'seller':    str(row[14] or '') if len(row) > 14 else '',
                     'taxExempt': str(row[15] or 'NO') if len(row) > 15 else 'NO',
+                    'seller':    str(row[16] or '') if len(row) > 16 else '',
                     'items':     items,
                     'dije': 0, 'dijeQty': 0, 'ccFee': 0, 'reseller': 'NO',
                 })
