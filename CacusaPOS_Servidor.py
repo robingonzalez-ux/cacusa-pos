@@ -188,6 +188,9 @@ def escribir_venta(sale):
             ws.cell(row, 16).value = sale.get('seller', '')   # col P: vendedor (trazabilidad)
             if not ws.cell(4, 16).value:
                 ws.cell(4, 16).value = 'Vendedor'             # encabezado si está vacío
+            ws.cell(row, 17).value = sale.get('taxExempt', 'NO')  # col Q: exonerado de impuesto
+            if not ws.cell(4, 17).value:
+                ws.cell(4, 17).value = 'Exonerado'
 
         elif tipo == 'OC' and 'ORDENES' in wb.sheetnames:
             ws   = wb['ORDENES']
@@ -210,6 +213,9 @@ def escribir_venta(sale):
             ws.cell(row, 15).value = sale.get('seller', '')   # col O: vendedor (trazabilidad)
             if not ws.cell(5, 15).value:
                 ws.cell(5, 15).value = 'Vendedor'             # encabezado si está vacío
+            ws.cell(row, 16).value = sale.get('taxExempt', 'NO')  # col P: exonerado de impuesto
+            if not ws.cell(5, 16).value:
+                ws.cell(5, 16).value = 'Exonerado'
 
         wb.save(EXCEL)
 
@@ -954,7 +960,7 @@ def leer_ventas_de_excel():
         # ── Hoja VENTAS (FAC) ──
         # Col: B=id, C=tipo, D=cliente, E=subtotal, F=tax, G=total,
         #      H=reseller, I=tax_lbl, J=status, K=vacío,
-        #      L=usps, M=shipping, N=fecha, O=payMethod
+        #      L=usps, M=shipping, N=fecha, O=payMethod, P=vendedor, Q=exonerado
         if 'VENTAS' in wb.sheetnames:
             for row in wb['VENTAS'].iter_rows(min_row=5, values_only=True):
                 sid = row[1]
@@ -989,6 +995,7 @@ def leer_ventas_de_excel():
                     'shipping':  round(float(row[12] or 0), 2),
                     'payMethod': str(row[14] or ''),
                     'seller':    str(row[15] or '') if len(row) > 15 else '',
+                    'taxExempt': str(row[16] or 'NO') if len(row) > 16 else 'NO',
                     'items': fac_items, 'dije': 0, 'dijeQty': 0, 'ccFee': 0,
                 })
 
@@ -996,7 +1003,7 @@ def leer_ventas_de_excel():
         # Col: A=num, B=id, C=fecha, D=cliente, E=status,
         #      F=subtotal, G=tax, H=total, I=payMethod,
         #      J=shipping, K=usps, L=tax_lbl, M=vacío,
-        #      N=items_str, O=vacío
+        #      N=items_str, O=vendedor, P=exonerado
         if 'ORDENES' in wb.sheetnames:
             for row in wb['ORDENES'].iter_rows(min_row=6, values_only=True):
                 sid = row[1]
@@ -1029,6 +1036,7 @@ def leer_ventas_de_excel():
                     'usps':      round(float(row[10] or 0), 2),
                     'taxState':  ts,  'taxRate': tr,
                     'seller':    str(row[14] or '') if len(row) > 14 else '',
+                    'taxExempt': str(row[15] or 'NO') if len(row) > 15 else 'NO',
                     'items':     items,
                     'dije': 0, 'dijeQty': 0, 'ccFee': 0, 'reseller': 'NO',
                 })
