@@ -2107,7 +2107,7 @@ function openSaleDetail(id) {
       ${s.dije?`<div class="total-row"><span>Dijes extra (${s.dijeQty||1}×$5)</span><span>+${fmt(s.dije)}</span></div>`:''}
       ${s.shipping?`<div class="total-row"><span>Envío cliente</span><span>${fmt(s.shipping)}</span></div>`:''}
       ${s.usps?`<div class="total-row"><span>Costo USPS</span><span>${fmt(s.usps)}</span></div>`:''}
-      <div class="total-row"><span>Impuesto</span><span>${fmt(s.tax)}</span></div>
+      <div class="total-row"><span>${s.taxExempt==='SÍ'?'Impuesto (Exonerado)':'Impuesto'}</span><span>${fmt(s.tax)}</span></div>
       ${s.ccFee?`<div class="total-row"><span style="color:var(--gold);">Recargo Tarjeta 4%</span><span style="color:var(--gold);">+${fmt(s.ccFee)}</span></div>`:''}
       <div class="divider"></div>
       <div class="total-row grand"><span>TOTAL</span><span>${fmt(s.total)}</span></div>
@@ -2280,7 +2280,8 @@ function generarPDF(id, soloEnviar = false) {
   };
   totalRow('Subtotal', fmt(s.subtotal));
   if (s.dije) totalRow(`Dijes extra (${s.dijeQty||1}×$5.00)`, fmt(s.dije));
-  if (s.tax) totalRow(`Tax (${s.taxRate || ''}%)`, fmt(s.tax));
+  if (s.taxExempt === 'SÍ') totalRow('Tax (Exonerado)', fmt(0));
+  else if (s.tax) totalRow(`Tax (${s.taxRate || ''}%)`, fmt(s.tax));
   if (s.ccFee) totalRow('Recargo Tarjeta 4%', fmt(s.ccFee));
 
   // fila TOTAL con fondo rosa
